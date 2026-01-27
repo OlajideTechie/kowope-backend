@@ -3,13 +3,20 @@
 - first_name
 - last_name
 - phone_number (unique)
-- license_number
-- plate_number
+- license_number (unique)
+- plate_number (unique)
 - status (active | inactive)
 - created_at
 
+## OTP
+- id
+- user_id
+- otp_hash
+- expires_at
+- is_used (bool)
 
-## Ticket
+
+## Tickets
 - id
 - driver_id
 - amount
@@ -45,7 +52,7 @@
 
 ## AdminUser
 - id
-- role (super_admin | admin)
+- role (super_admin | admin | Agent)
 
 ## Out Of Scope 
 
