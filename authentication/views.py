@@ -43,7 +43,7 @@ class DriverSignupView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
-        logger.info(f"New driver registered: {user.email}")
+        logger.info(f"New driver registered: {user.phone_number}")
 
         #generate auth token
         refresh = RefreshToken.for_user(user)

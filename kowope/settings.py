@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import cloudinary
 from dotenv import load_dotenv
 import os
 from datetime import timedelta
@@ -50,6 +51,8 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt.token_blacklist',
     'rest_framework',
     'drf_spectacular',
+    'cloudinary',
+    'cloudinary_storage',
 
     # Local apps
     'authentication',
@@ -163,10 +166,26 @@ USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
+DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+
+# https://docs.djangoproject.com/en/5.2/howto/static-files/
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
+    secure=True,
+    resource_type="raw",  # Important for PDFs
+)
+
+# Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Whitenoise configuration for serving static files in production
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
@@ -176,12 +195,16 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Custom User Model
+AUTH_USER_MODEL = 'authentication.User'
+
 
 # API Documentation Settings
 
 SPECTACULAR_SETTINGS = {
     'TITLE': 'Kówópé Backend Service',
-    'DESCRIPTION': 'Kówópé is a driver ticketing system designed to simplify daily road-use payments for commercial drivers',
+    'DESCRIPTION': 'Kówópé is a driver ticketing system designed to simplify '
+    'daily road-use payments for commercial drivers',
     'VERSION': '1.0.0',
     'SERVE_INCLUDE_SCHEMA': True,
     'COMPONENT_SPLIT': True,
@@ -261,3 +284,37 @@ LOGGING = {
         # Add other app loggers here
     },
 }
+
+
+# Cors settings
+CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOWED_ORIGINS = [
+    "https://kowope-frontend.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+]
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "origin",
+    "x-csrftoken",
+    "x-requested-with",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+SESSION_COOKIE_SECURE = True
+
+CSRF_COOKIE_SECURE = True
+
+
+OTP_MODE = os.getenv("OTP_MODE", "mock")  # Set to "test" for testing environment
+
+DEFAUKLT_OTP_CODE = os.getenv("DEFAULT_OTP_CODE", "123456")
+
+OTP_EXPIRY = int(os.getenv("OTP_EXPIRY", "300"))  # Default expiry in seconds (5 minutes)

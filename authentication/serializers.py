@@ -2,6 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
 from .models import User, DriverProfile
+from datetime import datetime
 
 # User serializer for displaying user information
 class UserSerializer(serializers.ModelSerializer):
@@ -12,12 +13,10 @@ class UserSerializer(serializers.ModelSerializer):
 # Serializer for driver signup
 class DriverSignupSerializer(serializers.Serializer):
     phone_number = serializers.CharField()
-    pin = serializers.CharField(min_length=4, max_length=4)
-    confirm_pin = serializers.CharField(min_length=4, max_length=4)
 
     first_name = serializers.CharField()
     last_name = serializers.CharField()
-    country = serializers.CharField()
+
     state = serializers.CharField()
     lga = serializers.CharField()
     date_of_birth = serializers.DateField()
@@ -27,8 +26,6 @@ class DriverSignupSerializer(serializers.Serializer):
     plate_number = serializers.CharField()
 
     def validate(self, data):
-        if data["pin"] != data["confirm_pin"]:
-            raise serializers.ValidationError("PINs do not match")
 
         if DriverProfile.objects.filter(license_number=data["license_number"]).exists():
             raise serializers.ValidationError("Driver with this license number already exists")
@@ -38,9 +35,6 @@ class DriverSignupSerializer(serializers.Serializer):
 
         if DriverProfile.objects.filter(plate_number=data["plate_number"]).exists():
             raise serializers.ValidationError("Driver with this plate number already exists")
-
-        if not data.get("identification"):
-            raise serializers.ValidationError("Identification is required")
 
         if not data.get("license_number"):
             raise serializers.ValidationError("License number is required")
@@ -59,9 +53,6 @@ class DriverSignupSerializer(serializers.Serializer):
 
         if len(data.get("first_name", "")) < 2:
             raise serializers.ValidationError("First name must be at least 2 characters long")
-
-        if not data.get("country"):
-            raise serializers.ValidationError("Country is required")
 
         if not data.get("state"):
             raise serializers.ValidationError("State is required")
@@ -84,37 +75,23 @@ class DriverSignupSerializer(serializers.Serializer):
     Validate driver's date of birth
     """
     def validate_date_of_birth(self, value):
+
         if not value:
             raise serializers.ValidationError("Date of birth is required")
 
-        if not self.is_valid_date(value):
-            raise serializers.ValidationError("Invalid date format. Please use YYYY-MM-DD.")
-        return value
-    
-    """
-    Validate driver's license expiry date
-    """
-    def validate_license_expiry_date(self, value):
-        if not value:
-            raise serializers.ValidationError("License expiry date is required")
+        if value.year > datetime.now().year:
+            raise serializers.ValidationError("Date of birth cannot be in the future")
 
-        if not self.is_valid_date(value):
-            raise serializers.ValidationError("Invalid date format. Please use YYYY-MM-DD.")
-        return value
+        if value.year > 2007:
+            raise serializers.ValidationError("Driver must be at least 16 years old")
 
-    """
-    Validate driver's identification number
-    """
-    def validate_identification(self, value):
-        if not value:
-            raise serializers.ValidationError("Identification is required")
         return value
 
     """
     Create a new driver profile
     """
     def create(self, validated_data):
-        pin = validated_data.pop("pin")
+        # pin = validated_data.pop("pin")
 
         user = User.objects.create(
             phone_number=validated_data["phone_number"],
@@ -123,7 +100,7 @@ class DriverSignupSerializer(serializers.Serializer):
 
         DriverProfile.objects.create(
             user=user,
-            pin_hash=make_password(pin),
+            # pin_hash=make_password(pin),
             **validated_data
         )
 
