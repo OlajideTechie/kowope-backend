@@ -1,8 +1,15 @@
 from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
-from .models import User, DriverProfile
+from .models import User, DriverProfile, otp, DriverDocument
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from datetime import datetime
+import os
+
+MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes 
+
+WEAK_PINS = ['1234', '0000', '1111', '2222', '3333', 
+             '4444', '5555', '6666', '7777', '8888', '9999']
 
 # User serializer for displaying user information
 class UserSerializer(serializers.ModelSerializer):
@@ -12,55 +19,85 @@ class UserSerializer(serializers.ModelSerializer):
 
 # Serializer for driver signup
 class DriverSignupSerializer(serializers.Serializer):
-    phone_number = serializers.CharField()
+    full_name = serializers.CharField(required=True)
+    phone_number = serializers.CharField(required=True)
 
-    first_name = serializers.CharField()
-    last_name = serializers.CharField()
+    zone = serializers.CharField(required=True)
+    lga = serializers.CharField(required=True)
 
-    state = serializers.CharField()
-    lga = serializers.CharField()
-    date_of_birth = serializers.DateField()
+    license_number = serializers.CharField(required=True)
 
-    license_number = serializers.CharField()
-    license_expiry_date = serializers.DateField()
-    plate_number = serializers.CharField()
+    pin = serializers.CharField(min_length=4, max_length=4, required=True, write_only=True)
 
+    confirm_pin = serializers.CharField(write_only=True, required=True)
+
+    document_type = serializers.ChoiceField(choices=[("nin", "NIN"), ("license", "Driver License")])
+
+    document_file = serializers.FileField()
+
+    def validate_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Pin must be numeric")
+        if len(value) != 4:
+            raise serializers.ValidationError("Pin must be exactly 4 digits long")
+        if value in WEAK_PINS:
+            raise serializers.ValidationError("Pin is too weak. Please choose a stronger pin.")
+        if value != self.initial_data.get("confirm_pin"):
+            raise serializers.ValidationError("Pin and confirm pin do not match")
+        return value
+
+   
     def validate(self, data):
 
         if DriverProfile.objects.filter(license_number=data["license_number"]).exists():
             raise serializers.ValidationError("Driver with this license number already exists")
 
-        if DriverProfile.objects.filter(phone_number=data["phone_number"]).exists():
+        if DriverProfile.objects.filter(phone_number=data["phone_number"].strip()).exists():
             raise serializers.ValidationError("Driver with this phone number already exists")
-
-        if DriverProfile.objects.filter(plate_number=data["plate_number"]).exists():
-            raise serializers.ValidationError("Driver with this plate number already exists")
 
         if not data.get("license_number"):
             raise serializers.ValidationError("License number is required")
 
-        if not data.get("license_expiry_date"):
-            raise serializers.ValidationError("License expiry date is required")
+        if not data.get("full_name"):
+            raise serializers.ValidationError("Full name is required")
 
-        if not data.get("plate_number"):
-            raise serializers.ValidationError("Plate number is required")
-
-        if not data.get("first_name"):
-            raise serializers.ValidationError("First name is required")
-
-        if not data.get("last_name"):
-            raise serializers.ValidationError("Last name is required")
-
-        if len(data.get("first_name", "")) < 2:
-            raise serializers.ValidationError("First name must be at least 2 characters long")
-
-        if not data.get("state"):
-            raise serializers.ValidationError("State is required")
+        if len(data.get("full_name", "")) < 2:
+            raise serializers.ValidationError("Full name must be at least 2 characters long")
+        
+        if not data.get("zone"):
+            raise serializers.ValidationError("Zone is required")
+        
+        if not data.get("phone_number"):
+            raise serializers.ValidationError("Phone number is required")
+        
+        if not data.get("document_type"):
+            raise serializers.ValidationError("Document type is required")
+        
+        if not data.get("document_type") in ["nin", "license"]:
+            raise serializers.ValidationError("Document type must be either 'nin' or 'license'")
+        
+        if not data.get("document_file"):
+            raise serializers.ValidationError("Document file is required")
+        
+        if not data.get("pin"):
+            raise serializers.ValidationError("Pin is required")
+        
+        if not data.get("confirm_pin"):
+            raise serializers.ValidationError("Confirm pin is required")
 
         if not data.get("lga"):
             raise serializers.ValidationError("LGA is required")
 
         return data
+    
+    def validate_license_number(self, value):
+        if len(value) < 7:
+            raise serializers.ValidationError("License number must be at least 7 characters long")
+        if not value.isalnum():
+            raise serializers.ValidationError("License number must be alphanumeric")
+        if not value.isupper():
+            raise serializers.ValidationError("License number must be uppercase")
+        return value
     
     def validate_phone_number(self, value):
         if not value:
@@ -70,22 +107,35 @@ class DriverSignupSerializer(serializers.Serializer):
         if len(value) != 11:
             raise serializers.ValidationError("Phone number must be 11 digits long")
         return value
+    
+    """ Additional validation for document file type and size """
+    def validate_document_file(self, file):
+        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
+        ext = os.path.splitext(file.name)[1].lower()
 
-    """
-    Validate driver's date of birth
-    """
-    def validate_date_of_birth(self, value):
+        if ext not in allowed_extensions:
+            raise serializers.ValidationError("Only PDF, JPG, JPEG, or PNG files are allowed.")
 
-        if not value:
-            raise serializers.ValidationError("Date of birth is required")
+        blocked_mime_types = [
+            'text/plain',
+            'text/csv',
+            'application/vnd.ms-excel',
+        ]
 
-        if value.year > datetime.now().year:
-            raise serializers.ValidationError("Date of birth cannot be in the future")
+        if file.content_type in blocked_mime_types:
+            raise serializers.ValidationError("Unsupported file type. Allowed types: PDF, JPG, JPEG, PNG")
 
-        if value.year > 2007:
-            raise serializers.ValidationError("Driver must be at least 16 years old")
+        if file.size > MAX_FILE_SIZE:  # Limit file size to 5MB
+            raise serializers.ValidationError("Document file size should not exceed 5MB")
+        
+        return file
+    
+    # Additional validation for pin strength and matching
+    def validate_empty_values(self, data):
+        return super().validate_empty_values(data)
+    
 
-        return value
+
 
     """
     Create a new driver profile
@@ -100,7 +150,7 @@ class DriverSignupSerializer(serializers.Serializer):
 
         DriverProfile.objects.create(
             user=user,
-            # pin_hash=make_password(pin),
+            pin_hash=make_password(validated_data.pop("pin")),
             **validated_data
         )
 
@@ -153,4 +203,3 @@ class StaffLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid credentials provided")
 
         return user
-

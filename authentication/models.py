@@ -28,7 +28,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
     phone_number = models.CharField(max_length=15, unique=True, null=True, blank=True)
-    email = models.EmailField(unique=True, null=False, blank=False, db_index=True)
+    email = models.EmailField(unique=True, null=True, blank=True, db_index=True)
 
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, db_index=True)
 
