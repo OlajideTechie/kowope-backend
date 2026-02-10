@@ -30,7 +30,7 @@ No mobile app required.
 - If not, they need to be onboarded 
 
 ### 2️⃣ OTP is generated
-- 4–6 digit numeric OTP
+- 6 digit numeric OTP
 - Stored temporarily (hashed)
 - Expires after **5 minutes**
 
@@ -44,8 +44,8 @@ No mobile app required.
 - Auth token is returned
 
 ### 5️⃣ Subsequent access
-- Driver provides phone number and password
-- Driver is verified and logs in if successful
+- Driver provides phone number and pin
+- Driver is verified and logged in if successful
 
 
 ---
