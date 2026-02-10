@@ -318,8 +318,12 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 
 
-OTP_MODE = os.getenv("OTP_MODE", "mock")  # Set to "test" for testing environment
+# OTP behavior
+USE_STATIC_OTP = True
+STATIC_OTP_CODE = "123456"
 
-DEFAUKLT_OTP_CODE = os.getenv("DEFAULT_OTP_CODE", "123456")
+OTP_EXPIRY_SECONDS = 300  # 5 minutes
 
-OTP_EXPIRY = int(os.getenv("OTP_EXPIRY", "300"))  # Default expiry in seconds (5 minutes)
+# SMS provider toggle
+ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
+SMS_PROVIDER = "twilio"      

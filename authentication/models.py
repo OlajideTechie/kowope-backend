@@ -105,7 +105,7 @@ class DriverProfile(models.Model):
 
 
 # OTP model for driver phone verification and authentication
-class otp(models.Model):
+class OTP(models.Model):
     OTP_PURPOSE_CHOICES = [
         ("signup", "Signup Verification"),
         ("login", "Login"),

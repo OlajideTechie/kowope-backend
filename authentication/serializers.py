@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
-from .models import User, DriverProfile, otp, DriverDocument
+from .models import User, DriverProfile, OTP
 from drf_spectacular.utils import extend_schema, OpenApiResponse
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes 
@@ -203,3 +203,150 @@ class StaffLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid credentials provided")
 
         return user
+
+
+class DriverLogoutSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+    def validate(self, data):
+        if not data.get("refresh"):
+            raise serializers.ValidationError("Refresh token is required")
+        if not isinstance(data["refresh"], str):
+            raise serializers.ValidationError("Refresh token must be a string")
+        if len(data["refresh"].strip()) == 0:
+            raise serializers.ValidationError("Refresh token cannot be empty")
+        if len(data["refresh"]) > 500:
+            raise serializers.ValidationError("Refresh token is too long")
+        if len(data["refresh"]) < 10:
+            raise serializers.ValidationError("Refresh token is too short")
+        if not data["refresh"].startswith("eyJ"):  # Basic check for JWT format
+            raise serializers.ValidationError("Invalid refresh token format")
+        if " " in data["refresh"]:
+            raise serializers.ValidationError("Refresh token cannot contain spaces")
+        if not all(c.isalnum() or c in ['.', '_', '-'] for c in data["refresh"]):
+            raise serializers.ValidationError("Refresh token contains invalid characters")
+        return data
+    
+
+class VerifyOTPSerializer(serializers.Serializer):
+    phone_number = serializers.CharField()
+    code = serializers.CharField()
+
+    def validate_phone_number(self, value):
+        if not value:
+            raise serializers.ValidationError("Phone number is required")
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must be numeric")
+        if len(value) != 11:
+             raise serializers.ValidationError("Phone number must be 11 digits long")
+        return value
+    
+    def validate_code(self, value):
+        if not value:
+            raise serializers.ValidationError("OTP code is required")
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP code must be numeric")
+        if len(value) != 6:
+            raise serializers.ValidationError("OTP code must be 6 digits long")
+        if value == "000000":
+            raise serializers.ValidationError("OTP code cannot be all zeros")
+        
+        otp = OTP.objects.filter(code=value).first()
+        if otp is None:
+            raise serializers.ValidationError("Invalid OTP code")
+        if otp.is_used:
+            raise serializers.ValidationError("OTP code has already been used")
+        if otp.expires_at < datetime.now(timezone.utc):
+            raise serializers.ValidationError("OTP code has expired")
+        return value
+    
+
+class ResendOTPSerializer(serializers.Serializer):
+    phone_number = serializers.CharField()
+
+    def validate_phone_number(self, value):
+        if not value:
+            raise serializers.ValidationError("Phone number is required")
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must be numeric")
+        if len(value) != 11:
+             raise serializers.ValidationError("Phone number must be 11 digits long")
+        return value
+    
+    # Additional validation to check if user exists for the provided phone number
+    def validate(self, data):
+        user = User.objects.filter(phone_number=data["phone_number"]).first()
+        if not user:
+            raise serializers.ValidationError("Otp has been sent to this phone number")
+        return data
+
+class ChangePinSerializer(serializers.Serializer):
+    old_pin = serializers.CharField(min_length=4, max_length=4)
+    new_pin = serializers.CharField(min_length=4, max_length=4)
+
+    def validate_old_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Old pin must be numeric")
+        if len(value) != 4:
+            raise serializers.ValidationError("Old pin must be exactly 4 digits long")
+        return value
+
+    def validate_new_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("New pin must be numeric")
+        if len(value) != 4:
+            raise serializers.ValidationError("New pin must be exactly 4 digits long")
+        if value in WEAK_PINS:
+            raise serializers.ValidationError("New pin is too weak. Please choose a stronger pin.")
+        if value == self.initial_data.get("old_pin"):
+            raise serializers.ValidationError("New pin cannot be the same as old pin")
+        return value
+    
+
+class ResetPinSerializer(serializers.Serializer):
+    phone_number = serializers.CharField()
+    code = serializers.CharField()
+    new_pin = serializers.CharField(min_length=4, max_length=4)
+
+    def validate_phone_number(self, value):
+        if not value:
+            raise serializers.ValidationError("Phone number is required")
+        if not value.isdigit():
+            raise serializers.ValidationError("Phone number must be numeric")
+        if len(value) != 11:
+             raise serializers.ValidationError("Phone number must be 11 digits long")
+        return value
+
+    def validate_code(self, value):
+        if not value:
+            raise serializers.ValidationError("OTP code is required")
+        if not value.isdigit():
+            raise serializers.ValidationError("OTP code must be numeric")
+        if len(value) != 6:
+            raise serializers.ValidationError("OTP code must be 6 digits long")
+        if value == "000000":
+            raise serializers.ValidationError("OTP code cannot be all zeros")
+        
+        otp = OTP.objects.filter(code=value).first()
+        if otp is None:
+            raise serializers.ValidationError("Invalid OTP code")
+        if otp.is_used:
+            raise serializers.ValidationError("OTP code has already been used")
+        if otp.expires_at < datetime.now(timezone.utc):
+            raise serializers.ValidationError("OTP code has expired")
+        return value
+
+    def validate_new_pin(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("New pin must be numeric")
+        if len(value) != 4:
+            raise serializers.ValidationError("New pin must be exactly 4 digits long")
+        if value in WEAK_PINS:
+            raise serializers.ValidationError("New pin is too weak. Please choose a stronger pin.")
+        return value
+    
+
+class DriverProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DriverProfile
+        fields = ['id', 'full_name', 'phone_number', 'license_number', 'is_phone_verified', 'verified', 'created_at']
