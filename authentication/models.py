@@ -59,6 +59,23 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 
+
+def normalize_phone(phone_number: str) -> str:
+    phone_number = "".join(filter(str.isdigit, phone_number))
+    
+    # Normalize Nigerian phone numbers by converting +234 to 0
+    if phone_number.startswith("0"):
+        phone_number = "234" + phone_number[1:]
+
+    elif phone_number.startswith("234"):
+        pass  # Already in correct format
+
+    else :
+        raise ValueError("Invalid phone number format. Must start with '0' or '234'.")
+
+    return phone_number
+
+
 # Driver Profile
 class DriverProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -124,17 +141,6 @@ class OTP(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
-    
-    """
-    Set OTP expiration time to 5 minutes after creation
-    """
-    def save(self, *args, **kwargs):
-        if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(minutes=5)
-        super().save(*args, **kwargs)
-     
-    def is_expired(self):
-        return timezone.now() > self.expires_at
 
     """
     Index for optimizing queries on phone_number field for OTPs
@@ -143,6 +149,9 @@ class OTP(models.Model):
         indexes = [
             models.Index(fields=["phone_number", "purpose"]),
         ]
+
+    def has_expired(self) -> bool:
+        return timezone.now() > self.expires_at
 
 
 # Agent Profile, agents are responsible for managing drivers in specific locations and providing support

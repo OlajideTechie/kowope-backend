@@ -1,9 +1,9 @@
 from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
-from .models import User, DriverProfile, OTP
+from .models import DriverDocument, User, DriverProfile, OTP
 from drf_spectacular.utils import extend_schema, OpenApiResponse
-from datetime import datetime, timezone
+from django.utils import timezone
 import os
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes 
@@ -135,8 +135,6 @@ class DriverSignupSerializer(serializers.Serializer):
         return super().validate_empty_values(data)
     
 
-
-
     """
     Create a new driver profile
     """
@@ -206,22 +204,22 @@ class StaffLoginSerializer(serializers.Serializer):
 
 
 class DriverLogoutSerializer(serializers.Serializer):
-    refresh = serializers.CharField()
+    refresh_token = serializers.CharField()
 
     def validate(self, data):
-        if not data.get("refresh"):
+        if not data.get("refresh_token"):
             raise serializers.ValidationError("Refresh token is required")
-        if not isinstance(data["refresh"], str):
+        if not isinstance(data["refresh_token"], str):
             raise serializers.ValidationError("Refresh token must be a string")
-        if len(data["refresh"].strip()) == 0:
+        if len(data["refresh_token"].strip()) == 0:
             raise serializers.ValidationError("Refresh token cannot be empty")
-        if len(data["refresh"]) > 500:
+        if len(data["refresh_token"]) > 500:
             raise serializers.ValidationError("Refresh token is too long")
-        if len(data["refresh"]) < 10:
+        if len(data["refresh_token"]) < 10:
             raise serializers.ValidationError("Refresh token is too short")
-        if not data["refresh"].startswith("eyJ"):  # Basic check for JWT format
+        if not data["refresh_token"].startswith("eyJ"):  # Basic check for JWT format
             raise serializers.ValidationError("Invalid refresh token format")
-        if " " in data["refresh"]:
+        if " " in data["refresh_token"]:
             raise serializers.ValidationError("Refresh token cannot contain spaces")
         if not all(c.isalnum() or c in ['.', '_', '-'] for c in data["refresh"]):
             raise serializers.ValidationError("Refresh token contains invalid characters")
@@ -256,7 +254,7 @@ class VerifyOTPSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid OTP code")
         if otp.is_used:
             raise serializers.ValidationError("OTP code has already been used")
-        if otp.expires_at < datetime.now(timezone.utc):
+        if otp.expires_at < timezone.now():
             raise serializers.ValidationError("OTP code has expired")
         return value
     
@@ -332,7 +330,7 @@ class ResetPinSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid OTP code")
         if otp.is_used:
             raise serializers.ValidationError("OTP code has already been used")
-        if otp.expires_at < datetime.now(timezone.utc):
+        if otp.expires_at < timezone.now():
             raise serializers.ValidationError("OTP code has expired")
         return value
 
@@ -346,7 +344,38 @@ class ResetPinSerializer(serializers.Serializer):
         return value
     
 
+
+class DriverDocumentSerializer(serializers.ModelSerializer):
+    document_file = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DriverDocument
+        fields = ['document_type', 'document_file', 'status']
+
+    def get_document_file(self, obj):
+        request = self.context.get('request')
+        if obj.document_file and hasattr(obj.document_file, 'url'):
+            return request.build_absolute_uri(obj.document_file.url)
+        return None
+
+
 class DriverProfileSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(source="user.id", read_only=True)
+    phone_number = serializers.CharField(source="user.phone_number", read_only=True)
+    is_phone_verified = serializers.BooleanField(source="user.is_phone_verified", read_only=True)
+    verified = serializers.BooleanField(source="user.verified", read_only=True)
+    created_at = serializers.DateTimeField(source="user.created_at", read_only=True)
+    documents = DriverDocumentSerializer(source="document")
+
     class Meta:
         model = DriverProfile
-        fields = ['id', 'full_name', 'phone_number', 'license_number', 'is_phone_verified', 'verified', 'created_at']
+        fields = [
+            'id', 
+            'full_name', 
+            'phone_number', 
+            'license_number', 
+            'is_phone_verified', 
+            'verified', 
+            'documents',
+            'created_at',
+            ]

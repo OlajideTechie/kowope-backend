@@ -130,19 +130,6 @@ class DriverSignupView(generics.CreateAPIView):
 class DriverLoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
-    @extend_schema(
-        request=DriverLoginSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=DriverLoginSerializer,
-                description="Driver logged in successfully"
-            ),
-            400: OpenApiResponse(
-                response=None,
-                description="Invalid credentials"
-            )
-        }
-    )
     def post(self, request):
         serializer = DriverLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -163,9 +150,9 @@ class DriverLoginView(APIView):
                 "success": False,
                 "message": "Phone number must be verified to log in."
             }, status=status.HTTP_400_BAD_REQUEST)
+        
 
-
-        # Generate auth token
+        # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
 
@@ -177,8 +164,8 @@ class DriverLoginView(APIView):
             "success": True,
             "result": {
                 'user': UserSerializer(user).data,
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
+                'access_token': str(refresh.access_token),
+                'refresh_token': str(refresh),
                 'expires_in': expires_in.total_seconds()
             }
         }, status=status.HTTP_200_OK)
@@ -202,22 +189,9 @@ class DriverLogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = DriverLogoutSerializer
 
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(
-                response=None,
-                description="Driver logged out successfully"
-            ),
-            400: OpenApiResponse(
-                response=None,
-                description="Invalid request"
-            )
-        }
-    )
     def post(self, request):
         try:
-            refresh_token = request.data["refresh"]
+            refresh_token = request.data["refresh_token"]
             token = RefreshToken(refresh_token)
             token.blacklist()
 
@@ -252,43 +226,60 @@ class DriverLogoutView(APIView):
 )
 class VerifyOTPView(APIView):
     permission_classes = [permissions.AllowAny]
-    parser_classes = [JSONParser, FormParser, MultiPartParser]
-    serializer_class = VerifyOTPSerializer
-
+    
     def post(self, request):
-            phone_number = request.data.get("phone_number")
-            otp = request.data.get("otp")
+        serializer_class = VerifyOTPSerializer
+        serializer = serializer_class(data=request.data)
 
-            if not phone_number or not otp:
-                return Response(
-                    {"success": False, "message": "Phone number and OTP are required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if not serializer.is_valid():
+            return Response(
+                {"success": False, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            result = OTPService.verify_otp(
+        phone_number = serializer.validated_data["phone_number"]
+        code = serializer.validated_data["code"]
+
+        try:
+            OTPService.verify_otp(
                 phone_number=phone_number,
-                otp=otp,
+                code=code,
                 purpose="signup"
             )
 
-            if not result["success"]:
-                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            user = User.objects.get(phone_number=phone_number)
+            
+            # Mark phone as verified and user as verified if not already verified
+            driver_profile = user.driver_profile
+            driver_profile.is_phone_verified = True
+            driver_profile.verified = True
+            driver_profile.save(update_fields=["is_phone_verified", "verified"])
 
-            user = User.objects.filter(phone_number=phone_number, role="driver").first()
-            driver = DriverProfile.objects.filter(user=user).first()
+            # Auto login after verification
+            refresh = RefreshToken.for_user(user)
 
-            user.is_active = True
-            user.save(update_fields=["is_active"])
+            access_token = refresh.access_token
 
-            driver.is_phone_verified = True
-            driver.save(update_fields=["is_phone_verified"])
+            expires_in = datetime.fromtimestamp(access_token.payload['exp']) - datetime.now()
 
             return Response(
                 {
                     "success": True,
-                    "message": "Phone number verified. You can now log in."
+                    "result": {
+                    "full_name": user.driver_profile.full_name,
+                    'user': UserSerializer(user).data,
+                    'access_token': str(refresh.access_token),
+                    'refresh_token': str(refresh),
+                    'expires_in': expires_in.total_seconds()
+            }
                 },
                 status=status.HTTP_200_OK
+            )
+
+        except ValueError as e:
+            return Response(
+                {"success": False, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
 
@@ -318,10 +309,10 @@ class ResendOTPView(APIView):
                 {"success": False, "message": "Phone number is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+        
         result = OTPService.resend_otp(
             phone_number=phone_number,
-            purpose="phone_verification"
+            purpose="signup"
         )
 
         return Response(result, status=status.HTTP_200_OK)
@@ -344,7 +335,7 @@ class ResendOTPView(APIView):
 class ChangePinView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = ChangePinSerializer
+    serializer_class = ChangePinSerializer()
 
     def post(self, request):
         user = request.user
