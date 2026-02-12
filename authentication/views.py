@@ -6,9 +6,12 @@ from drf_spectacular.utils import extend_schema
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.db import transaction
-from authentication.models import User, DriverProfile
-from rest_framework.parsers import MultiPartParser, FormParser
+from urllib3 import Retry
+from authentication.models import OTP, User, DriverProfile
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.types import OpenApiTypes
+from utils.phone import normalize_phone
+
 
 from datetime import timedelta
 from datetime import datetime
@@ -20,17 +23,27 @@ from authentication.serializers import (
     DriverSignupSerializer,
     DriverLoginSerializer,
     UserSerializer,
+    DriverLogoutSerializer,
     StaffSignupSerializer,
-    StaffLoginSerializer
+    StaffLoginSerializer,
+    VerifyOTPSerializer,
+    DriverProfileSerializer,
+    ResetPinSerializer,
+    ChangePinSerializer,
+    ResendOTPSerializer,
 )
 
 import logging
+
+from authentication.services.sms_service import SMSService
+from authentication.services.otp_service import OTPService
 
 logger = logging.getLogger(__name__)
 
 
 @extend_schema(
     request=DriverSignupSerializer,
+    tags=["Driver Authentication"],
     responses={
         201: OpenApiResponse(
             response=DriverSignupSerializer,
@@ -87,6 +100,8 @@ class DriverSignupView(generics.CreateAPIView):
         # generate auth token
         refresh = RefreshToken.for_user(self.user)
 
+        OTPService.create_otp(phone_number=self.user.phone_number, purpose="signup")
+
         return Response({
             "success": True,
             'user': UserSerializer(self.user).data,
@@ -99,23 +114,23 @@ class DriverSignupView(generics.CreateAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
-
+@extend_schema(
+    request=DriverLoginSerializer,
+    tags=["Driver Authentication"],
+    responses={
+        200: OpenApiResponse(
+            response=DriverLoginSerializer,
+            description="Driver logged in successfully"
+        ),
+        400: OpenApiResponse(
+            response=None,
+            description="Invalid credentials"
+        )
+    }
+)
 class DriverLoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
-    @extend_schema(
-        request=DriverLoginSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=DriverLoginSerializer,
-                description="Driver logged in successfully"
-            ),
-            400: OpenApiResponse(
-                response=None,
-                description="Invalid credentials"
-            )
-        }
-    )
     def post(self, request):
         serializer = DriverLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -136,9 +151,9 @@ class DriverLoginView(APIView):
                 "success": False,
                 "message": "Phone number must be verified to log in."
             }, status=status.HTTP_400_BAD_REQUEST)
+        
 
-
-        # Generate auth token
+        # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
 
@@ -150,8 +165,246 @@ class DriverLoginView(APIView):
             "success": True,
             "result": {
                 'user': UserSerializer(user).data,
-                'refresh': str(refresh),
-                'access': str(refresh.access_token),
+                'access_token': str(refresh.access_token),
+                'refresh_token': str(refresh),
                 'expires_in': expires_in.total_seconds()
             }
         }, status=status.HTTP_200_OK)
+    
+
+@extend_schema(
+    request=DriverLogoutSerializer,
+    tags=["Driver Authentication"],
+    responses={
+        200: OpenApiResponse(
+            response=None,
+            description="Driver logged out successfully"
+        ),
+        400: OpenApiResponse(
+            response=None,
+            description="Invalid request"
+        )
+    }
+)
+class DriverLogoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DriverLogoutSerializer
+
+    def post(self, request):
+        try:
+            refresh_token = request.data["refresh_token"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+
+            logger.info(f"Driver logged out as: {request.user.driver_profile.full_name}")
+
+            return Response({
+                "success": True,
+                "message": "Logged out successfully"
+            }, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                "success": False,
+                "message": "Invalid refresh token"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+
+"""API View to verify OTP for phone number verification and other purposes"""
+
+@extend_schema(
+    request=VerifyOTPSerializer,
+    tags=["Driver Authentication"],
+    responses={
+        200: OpenApiResponse(
+            response=None,
+            description="OTP verified successfully"
+        ),
+        400: OpenApiResponse(
+            response=None,
+            description="Invalid OTP or phone number"
+        )
+    }
+)
+class VerifyOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+    
+    def post(self, request):
+        serializer_class = VerifyOTPSerializer
+        serializer = serializer_class(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                {"success": False, "errors": serializer.errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        phone_number = serializer.validated_data["phone_number"]
+        code = serializer.validated_data["code"]
+
+        
+        result = OTPService.verify_otp(
+                phone_number=phone_number,
+                code=code,
+                purpose="signup"
+            )
+        
+        if not result["success"]:
+            return Response(
+                result,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            user = User.objects.get(phone_number=(phone_number))
+
+            driver_profile = user.driver_profile
+
+            if driver_profile.is_phone_verified:
+                return Response(
+                    {"success": False, "message": "User already verified"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Mark phone as verified and user as verified if not already verified
+            driver_profile = user.driver_profile
+            driver_profile.is_phone_verified = True
+            driver_profile.verified = True
+            driver_profile.save(update_fields=["is_phone_verified", "verified"])
+                
+            logger.info(f"Driver phone verified as: {user.driver_profile.full_name}")
+
+            # Auto login after verification
+            refresh_token = RefreshToken.for_user(user)
+            access_token = refresh_token.access_token
+            
+            # calculate token expiry time in seconds eg 300 seconds
+            expires_in = datetime.fromtimestamp(access_token.payload['exp']) - datetime.now()
+
+            return Response(
+                {
+                    "success": True,
+                    "result": {
+                    "full_name": user.driver_profile.full_name,
+                    'user': UserSerializer(user).data,
+                    'access_token': str(refresh_token.access_token),
+                    'refresh_token': str(refresh_token),
+                    'expires_in': expires_in.total_seconds()
+            }
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except ValueError as e:
+            return Response(
+                {"success": False, "message": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
+@extend_schema(
+    request=ResendOTPSerializer,
+    tags=["Driver Authentication"],
+    responses={
+        200: OpenApiResponse(
+            response=None,
+            description="A new OTP has been sent"
+        ),
+        400: OpenApiResponse(
+            response=None,
+            description="Invalid phone number"
+        )
+    }
+)
+class ResendOTPView(APIView):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = ResendOTPSerializer
+
+    def post(self, request):
+        phone_number = normalize_phone(request.data.get("phone_number"))
+
+        if not phone_number:
+            return Response(
+                {"success": False, "message": "Phone number is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        normalized_phone = normalize_phone(phone_number)
+
+        user = User.objects.filter(phone_number=normalized_phone).first()
+
+        if user and not user.driver_profile.is_phone_verified:
+            OTPService.resend_otp(
+                 phone_number=normalized_phone,
+                 purpose="signup"
+                 
+            )
+
+        return Response({ "success": True, "message": "OTP has been resent to the phone number" }, status=status.HTTP_200_OK)
+    
+
+@extend_schema(
+    request=ChangePinSerializer,
+    tags=["Driver Authentication"],
+    responses={
+        200: OpenApiResponse(
+            response=None,
+            description="PIN changed successfully"
+        ),
+        400: OpenApiResponse(
+            response=None,
+            description="Invalid old PIN or new PIN"
+        )
+    }
+)
+class ChangePinView(APIView):
+
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ChangePinSerializer()
+
+    def post(self, request):
+        user = request.user
+        driver_profile = user.driver_profile
+
+        old_pin = request.data.get("old_pin")
+        new_pin = request.data.get("new_pin")
+
+        if not driver_profile.check_pin(old_pin):
+            return Response({"error": "Old PIN is incorrect"}, status=400)
+
+        driver_profile.set_pin(new_pin)
+
+        return Response({
+            "success": True,
+            "message": "PIN changed successfully"
+        })
+    
+
+
+"""API View to retrieve the authenticated driver's profile information"""
+
+@extend_schema(
+    request=None,
+    tags=["Driver Profile"],
+    responses={
+        200: OpenApiResponse(
+            response=DriverProfileSerializer,
+            description="Driver profile retrieved successfully"
+        ),
+        404: OpenApiResponse(
+            response=None,
+            description="Driver profile not found"
+        )
+    }
+)
+class DriverProfileView(generics.RetrieveAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = DriverProfileSerializer
+
+    def get_object(self):
+        driver_profile = self.request.user.driver_profile
+        if not driver_profile:
+            return Response({
+                "success": False,
+                "message": "Driver profile not found"
+            }, status=status.HTTP_404_NOT_FOUND)
+        return driver_profile

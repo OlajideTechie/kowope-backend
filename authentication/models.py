@@ -1,19 +1,15 @@
 from fileinput import filename
+import cloudinary
 from django.db import models
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
 from datetime import timedelta
-from cloudinary_storage.storage import MediaCloudinaryStorage
+from utils.phone import normalize_phone
+from cloudinary.models import CloudinaryField
 
 
-"""
-Ensure files uploaded to Cloudinary are stored in a private folder for security and access control
-"""
-private_storage = MediaCloudinaryStorage(
-    resource_type="raw"
-)
 
 
 # User model
@@ -90,6 +86,13 @@ class DriverProfile(models.Model):
     
     def check_pin(self, raw_pin: str) -> bool:
         return check_password(raw_pin, self.pin_hash)
+    
+    """
+    Override the save method to ensure phone numbers are normalized before saving to the database
+    """
+    def save (self, *args, **kwargs):
+        self.phone_number = normalize_phone(str(self.phone_number))
+        super().save(*args, **kwargs)
 
     """
     Indexes for optimizing queries on phone_number, 
@@ -105,7 +108,7 @@ class DriverProfile(models.Model):
 
 
 # OTP model for driver phone verification and authentication
-class otp(models.Model):
+class OTP(models.Model):
     OTP_PURPOSE_CHOICES = [
         ("signup", "Signup Verification"),
         ("login", "Login"),
@@ -124,17 +127,6 @@ class otp(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
-    
-    """
-    Set OTP expiration time to 5 minutes after creation
-    """
-    def save(self, *args, **kwargs):
-        if not self.expires_at:
-            self.expires_at = timezone.now() + timedelta(minutes=5)
-        super().save(*args, **kwargs)
-     
-    def is_expired(self):
-        return timezone.now() > self.expires_at
 
     """
     Index for optimizing queries on phone_number field for OTPs
@@ -143,6 +135,9 @@ class otp(models.Model):
         indexes = [
             models.Index(fields=["phone_number", "purpose"]),
         ]
+
+    def has_expired(self) -> bool:
+        return timezone.now() > self.expires_at
 
 
 # Agent Profile, agents are responsible for managing drivers in specific locations and providing support
@@ -205,9 +200,11 @@ class DriverDocument(models.Model):
 
     document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES)
     
-    document_file = models.FileField(
-        storage=private_storage, 
-        upload_to="driver_documents/"
+    document_file = CloudinaryField(
+        "driver_document",
+        folder="driver_documents/",
+        resource_type="auto",
+        type="private",
     )
 
     status = models.CharField(
@@ -227,3 +224,13 @@ class DriverDocument(models.Model):
 
     verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def get_document_url(self): 
+        url, _ = cloudinary.utils.cloudinary_url(
+            self.document_file.public_id, 
+            resource_type="auto", 
+            type="authenticated", 
+            sign_url=True,
+            expires_at=int((timezone.now() + timedelta(minutes=5)).timestamp()) # URL expires in 5 minutes
+            )
+        return url
