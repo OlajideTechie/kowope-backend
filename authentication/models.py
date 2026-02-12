@@ -1,19 +1,15 @@
 from fileinput import filename
+import cloudinary
 from django.db import models
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
 from datetime import timedelta
-from cloudinary_storage.storage import MediaCloudinaryStorage
+from utils.phone import normalize_phone
+from cloudinary.models import CloudinaryField
 
 
-"""
-Ensure files uploaded to Cloudinary are stored in a private folder for security and access control
-"""
-private_storage = MediaCloudinaryStorage(
-    resource_type="raw"
-)
 
 
 # User model
@@ -59,23 +55,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 
-
-def normalize_phone(phone_number: str) -> str:
-    phone_number = "".join(filter(str.isdigit, phone_number))
-    
-    # Normalize Nigerian phone numbers by converting +234 to 0
-    if phone_number.startswith("0"):
-        phone_number = "234" + phone_number[1:]
-
-    elif phone_number.startswith("234"):
-        pass  # Already in correct format
-
-    else :
-        raise ValueError("Invalid phone number format. Must start with '0' or '234'.")
-
-    return phone_number
-
-
 # Driver Profile
 class DriverProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -107,6 +86,13 @@ class DriverProfile(models.Model):
     
     def check_pin(self, raw_pin: str) -> bool:
         return check_password(raw_pin, self.pin_hash)
+    
+    """
+    Override the save method to ensure phone numbers are normalized before saving to the database
+    """
+    def save (self, *args, **kwargs):
+        self.phone_number = normalize_phone(str(self.phone_number))
+        super().save(*args, **kwargs)
 
     """
     Indexes for optimizing queries on phone_number, 
@@ -214,9 +200,11 @@ class DriverDocument(models.Model):
 
     document_type = models.CharField(max_length=20, choices=DOCUMENT_TYPES)
     
-    document_file = models.FileField(
-        storage=private_storage, 
-        upload_to="driver_documents/"
+    document_file = CloudinaryField(
+        "driver_document",
+        folder="driver_documents/",
+        resource_type="auto",
+        type="private",
     )
 
     status = models.CharField(
@@ -236,3 +224,13 @@ class DriverDocument(models.Model):
 
     verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def get_document_url(self): 
+        url, _ = cloudinary.utils.cloudinary_url(
+            self.document_file.public_id, 
+            resource_type="auto", 
+            type="authenticated", 
+            sign_url=True,
+            expires_at=int((timezone.now() + timedelta(minutes=5)).timestamp()) # URL expires in 5 minutes
+            )
+        return url

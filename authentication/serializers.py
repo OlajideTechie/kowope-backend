@@ -249,13 +249,6 @@ class VerifyOTPSerializer(serializers.Serializer):
         if value == "000000":
             raise serializers.ValidationError("OTP code cannot be all zeros")
         
-        otp = OTP.objects.filter(code=value).first()
-        if otp is None:
-            raise serializers.ValidationError("Invalid OTP code")
-        if otp.is_used:
-            raise serializers.ValidationError("OTP code has already been used")
-        if otp.expires_at < timezone.now():
-            raise serializers.ValidationError("OTP code has expired")
         return value
     
 
@@ -265,18 +258,7 @@ class ResendOTPSerializer(serializers.Serializer):
     def validate_phone_number(self, value):
         if not value:
             raise serializers.ValidationError("Phone number is required")
-        if not value.isdigit():
-            raise serializers.ValidationError("Phone number must be numeric")
-        if len(value) != 11:
-             raise serializers.ValidationError("Phone number must be 11 digits long")
-        return value
-    
-    # Additional validation to check if user exists for the provided phone number
-    def validate(self, data):
-        user = User.objects.filter(phone_number=data["phone_number"]).first()
-        if not user:
-            raise serializers.ValidationError("Otp has been sent to this phone number")
-        return data
+
 
 class ChangePinSerializer(serializers.Serializer):
     old_pin = serializers.CharField(min_length=4, max_length=4)

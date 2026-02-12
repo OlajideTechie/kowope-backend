@@ -10,6 +10,7 @@ from urllib3 import Retry
 from authentication.models import OTP, User, DriverProfile
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.types import OpenApiTypes
+from utils.phone import normalize_phone
 
 
 from datetime import timedelta
@@ -240,26 +241,43 @@ class VerifyOTPView(APIView):
         phone_number = serializer.validated_data["phone_number"]
         code = serializer.validated_data["code"]
 
-        try:
-            OTPService.verify_otp(
+        
+        result = OTPService.verify_otp(
                 phone_number=phone_number,
                 code=code,
                 purpose="signup"
             )
+        
+        if not result["success"]:
+            return Response(
+                result,
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            user = User.objects.get(phone_number=phone_number)
+        try:
+            user = User.objects.get(phone_number=(phone_number))
+
+            driver_profile = user.driver_profile
+
+            if driver_profile.is_phone_verified:
+                return Response(
+                    {"success": False, "message": "User already verified"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             # Mark phone as verified and user as verified if not already verified
             driver_profile = user.driver_profile
             driver_profile.is_phone_verified = True
             driver_profile.verified = True
             driver_profile.save(update_fields=["is_phone_verified", "verified"])
+                
+            logger.info(f"Driver phone verified as: {user.driver_profile.full_name}")
 
             # Auto login after verification
-            refresh = RefreshToken.for_user(user)
-
-            access_token = refresh.access_token
-
+            refresh_token = RefreshToken.for_user(user)
+            access_token = refresh_token.access_token
+            
+            # calculate token expiry time in seconds eg 300 seconds
             expires_in = datetime.fromtimestamp(access_token.payload['exp']) - datetime.now()
 
             return Response(
@@ -268,8 +286,8 @@ class VerifyOTPView(APIView):
                     "result": {
                     "full_name": user.driver_profile.full_name,
                     'user': UserSerializer(user).data,
-                    'access_token': str(refresh.access_token),
-                    'refresh_token': str(refresh),
+                    'access_token': str(refresh_token.access_token),
+                    'refresh_token': str(refresh_token),
                     'expires_in': expires_in.total_seconds()
             }
                 },
@@ -302,7 +320,7 @@ class ResendOTPView(APIView):
     serializer_class = ResendOTPSerializer
 
     def post(self, request):
-        phone_number = request.data.get("phone_number")
+        phone_number = normalize_phone(request.data.get("phone_number"))
 
         if not phone_number:
             return Response(
@@ -310,12 +328,18 @@ class ResendOTPView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        result = OTPService.resend_otp(
-            phone_number=phone_number,
-            purpose="signup"
-        )
+        normalized_phone = normalize_phone(phone_number)
 
-        return Response(result, status=status.HTTP_200_OK)
+        user = User.objects.filter(phone_number=normalized_phone).first()
+
+        if user and not user.driver_profile.is_phone_verified:
+            OTPService.resend_otp(
+                 phone_number=normalized_phone,
+                 purpose="signup"
+                 
+            )
+
+        return Response({ "success": True, "message": "OTP has been resent to the phone number" }, status=status.HTTP_200_OK)
     
 
 @extend_schema(

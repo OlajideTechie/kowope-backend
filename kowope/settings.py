@@ -149,8 +149,8 @@ REST_FRAMEWORK = {
 
 # JWT Settings
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=30),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'ALGORITHM': 'HS256',
@@ -171,7 +171,7 @@ USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
-DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
+#DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
@@ -319,7 +319,7 @@ CSRF_COOKIE_SECURE = True
 
 
 # OTP behavior
-USE_STATIC_OTP = True
+USE_STATIC_OTP = False
 STATIC_OTP_CODE = "123456"
 
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
