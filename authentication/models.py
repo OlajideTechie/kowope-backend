@@ -65,7 +65,7 @@ class DriverProfile(models.Model):
     zone = models.CharField(max_length=50)
     lga = models.CharField(max_length=50)
 
-    phone_number = models.CharField(unique=True, null=False, blank=False, db_index=True)
+    phone_number = models.CharField(unique=True, max_length=15, db_index=True)
 
     license_number = models.CharField(max_length=20, db_index=True)
 
@@ -119,7 +119,7 @@ class OTP(models.Model):
 
     purpose = models.CharField(max_length=20, choices=OTP_PURPOSE_CHOICES)
 
-    phone_number = models.CharField(max_length=11, db_index=True)
+    phone_number = models.CharField(max_length=15, db_index=True)
     
     code = models.CharField(max_length=6)
 
