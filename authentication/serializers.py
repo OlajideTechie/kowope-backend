@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
 from .models import DriverDocument, User, DriverProfile, OTP
-from drf_spectacular.utils import extend_schema, OpenApiResponse
+from drf_spectacular.utils import extend_schema_field
 from django.utils import timezone
 import os
 
@@ -333,7 +333,8 @@ class DriverDocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = DriverDocument
         fields = ['document_type', 'document_file', 'status']
-
+    
+    @extend_schema_field(serializers.URLField())
     def get_document_file(self, obj):
         request = self.context.get('request')
         if obj.document_file and hasattr(obj.document_file, 'url'):

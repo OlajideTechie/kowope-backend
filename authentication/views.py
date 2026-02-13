@@ -111,8 +111,7 @@ class DriverSignupView(generics.CreateAPIView):
             'license_number': self.user.driver_profile.license_number,
              'verified': self.user.driver_profile.verified,
             'message': f'Driver Profile created successfully, an otp has been sent for phone verification.',
-        }, status=status.HTTP_201_CREATED)
-
+        }, status=status.HTTP_201_CREATED) 
 
 @extend_schema(
     request=DriverLoginSerializer,
