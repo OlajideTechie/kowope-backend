@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 import os
 from datetime import timedelta
 import dj_database_url
+import redis
 
 load_dotenv()
 
@@ -182,12 +183,11 @@ SIMPLE_JWT = {
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
 USE_I18N = True 
 
 USE_TZ = True
 
+TIME_ZONE = 'Africa/Lagos'
 
 # Static files (CSS, JavaScript, Images)
 #DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
@@ -356,3 +356,4 @@ if "test" in sys.argv:
             "LOCATION": "kowope-mvp-cache"
         }
     }
+

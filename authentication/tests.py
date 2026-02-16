@@ -1,7 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
-from authentication.services.otp_service import OTPService
+from services.otp_service import OTPService
 from utils.phone import normalize_phone
 
 User = get_user_model()
