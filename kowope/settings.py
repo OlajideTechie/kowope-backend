@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import sys
 import cloudinary
 from dotenv import load_dotenv
 import os
@@ -53,6 +54,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'cloudinary',
     'cloudinary_storage',
+    'django_ratelimit',
 
     # Local apps
     'authentication',
@@ -149,6 +151,20 @@ REST_FRAMEWORK = {
         'rest_framework.parsers.FormParser',
         'rest_framework.parsers.MultiPartParser',
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        'rest_framework.throttling.UserRateThrottle',
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        'user': '20/day',
+        'anon': '10/day', 
+        'signup': '5/minute',
+        'otp_request': '2/min',
+        'otp_verify': '5/min',
+        'login': '3/minute',
+        'reset_pin': '3/min',
+    }
 }
 
 # JWT Settings
@@ -331,3 +347,23 @@ OTP_EXPIRY_SECONDS = 300  # 5 minutes
 # SMS provider toggle
 ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
 SMS_PROVIDER = "twilio"      
+
+
+# Caching configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get('REDIS_URL'),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
+# Use in-memory cache for tests
+if "test" in sys.argv:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }

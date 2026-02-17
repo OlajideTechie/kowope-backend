@@ -1,3 +1,4 @@
+from unittest import result
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions
@@ -11,6 +12,8 @@ from authentication.models import OTP, User, DriverProfile
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.types import OpenApiTypes
 from utils.phone import normalize_phone
+from django.contrib.auth.hashers import make_password, check_password
+from rest_framework.throttling import ScopedRateThrottle
 
 
 from datetime import timedelta
@@ -33,10 +36,10 @@ from authentication.serializers import (
     ResendOTPSerializer,
 )
 
-import logging
-
 from authentication.services.sms_service import SMSService
 from authentication.services.otp_service import OTPService
+
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,10 @@ class DriverSignupView(generics.CreateAPIView):
     serializer_class = DriverSignupSerializer
     permission_classes = [permissions.AllowAny]
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "signup"
+
+
     parser_classes = [MultiPartParser, FormParser]
 
     def perform_create(self, serializer):
@@ -73,9 +80,9 @@ class DriverSignupView(generics.CreateAPIView):
             driver_profile = DriverProfile.objects.create(
                 user=user,
                 full_name=data["full_name"],
-                zone=data["zone"],
+                area=data["area"],
                 lga=data["lga"],
-                phone_number=data["phone_number"],
+                phone_number=normalize_phone(data["phone_number"]),
                 license_number=data["license_number"],
                 is_phone_verified=False,
                 verified=False,
@@ -106,7 +113,7 @@ class DriverSignupView(generics.CreateAPIView):
             "success": True,
             'user': UserSerializer(self.user).data,
             'full_name': self.user.driver_profile.full_name,
-            'zone': self.user.driver_profile.zone,
+            'area': self.user.driver_profile.area,
             'lga': self.user.driver_profile.lga,
             'license_number': self.user.driver_profile.license_number,
              'verified': self.user.driver_profile.verified,
@@ -130,6 +137,9 @@ class DriverSignupView(generics.CreateAPIView):
 class DriverLoginView(APIView):
 
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
     def post(self, request):
         serializer = DriverLoginSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -164,6 +174,7 @@ class DriverLoginView(APIView):
             "success": True,
             "result": {
                 'user': UserSerializer(user).data,
+                'full_name': user.driver_profile.full_name,
                 'access_token': str(refresh.access_token),
                 'refresh_token': str(refresh),
                 'expires_in': expires_in.total_seconds()
@@ -199,7 +210,7 @@ class DriverLogoutView(APIView):
 
             return Response({
                 "success": True,
-                "message": "Logged out successfully"
+                "message": "You have been logged out successfully"
             }, status=status.HTTP_200_OK)
         except Exception as e:
             return Response({
@@ -226,6 +237,10 @@ class DriverLogoutView(APIView):
 )
 class VerifyOTPView(APIView):
     permission_classes = [permissions.AllowAny]
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "otp_verify"
+
     
     def post(self, request):
         serializer_class = VerifyOTPSerializer
@@ -318,7 +333,14 @@ class ResendOTPView(APIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = ResendOTPSerializer
 
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "otp_request"
+
+
     def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
         phone_number = normalize_phone(request.data.get("phone_number"))
 
         if not phone_number:
@@ -358,9 +380,12 @@ class ResendOTPView(APIView):
 class ChangePinView(APIView):
 
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = ChangePinSerializer()
+    serializer_class = ChangePinSerializer
 
     def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        serializer.is_valid(raise_exception=True)
+    
         user = request.user
         driver_profile = user.driver_profile
 
@@ -377,6 +402,91 @@ class ChangePinView(APIView):
             "message": "PIN changed successfully"
         })
     
+
+
+"""API View to handle pin reset request and verification using OTP"""
+@extend_schema(
+    request=ResetPinSerializer,
+    tags=["Driver Authentication"]
+)
+class ResetPinView(APIView):
+    permission_classes = [permissions.AllowAny]
+    serializer_class = ResetPinSerializer
+
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "reset_pin"
+
+
+    def post(self, request):
+        serializer = ResetPinSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        phone_number = serializer.validated_data["phone_number"]
+        otp_code = serializer.validated_data.get("otp_code")
+        new_pin = serializer.validated_data.get("new_pin")
+
+        # Fetch user
+        user = (
+            User.objects
+            .select_related("driver_profile")
+            .filter(driver_profile__phone_number=phone_number)
+            .first()
+        )
+
+        if not user:
+            return Response(
+                {"success": False, "message": "Phone number not registered."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # =====================================================
+        # PHASE 1 — INITIATE RESET
+        # =====================================================
+        if not otp_code and not new_pin:
+            OTPService.create_otp(
+                phone_number=phone_number,
+                purpose="reset_pin"
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "OTP has been sent to your phone."
+                },
+                status=status.HTTP_200_OK
+            )
+
+        # =====================================================
+        # PHASE 2 — VERIFY OTP + RESET PIN
+        # =====================================================
+        otp_result = OTPService.verify_otp(
+            phone_number=phone_number,
+            code=otp_code,
+            purpose="reset_pin"
+        )
+
+        if not otp_result.get("success"):
+            return Response(
+                {
+                    "success": False,
+                    "message": otp_result.get("message", "Invalid or expired OTP.")
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            driver_profile = user.driver_profile
+            driver_profile.pin_hash = make_password(new_pin)
+            driver_profile.save(update_fields=["pin_hash"])
+
+        return Response(
+            {
+                "success": True,
+                "message": "PIN reset successfully. You can now log in."
+            },
+            status=status.HTTP_200_OK
+        )
+
 
 
 """API View to retrieve the authenticated driver's profile information"""
@@ -407,3 +517,4 @@ class DriverProfileView(generics.RetrieveAPIView):
                 "message": "Driver profile not found"
             }, status=status.HTTP_404_NOT_FOUND)
         return driver_profile
+    
