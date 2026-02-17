@@ -176,4 +176,3 @@ tmp/
 # ============================================================================
 # TESTING
 pytest.ini
-monnify_merchants_model_training.py

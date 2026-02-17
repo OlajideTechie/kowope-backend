@@ -62,7 +62,7 @@ class DriverProfile(models.Model):
 
     full_name = models.CharField(max_length=50)
 
-    zone = models.CharField(max_length=50)
+    area = models.CharField(max_length=50)
     lga = models.CharField(max_length=50)
 
     phone_number = models.CharField(unique=True, max_length=15, db_index=True)
