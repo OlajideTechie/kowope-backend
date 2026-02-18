@@ -54,7 +54,6 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'cloudinary',
     'cloudinary_storage',
-    'django_ratelimit',
 
     # Local apps
     'authentication',
@@ -349,21 +348,11 @@ ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
 SMS_PROVIDER = "twilio"      
 
 
-# Caching configuration
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.environ.get('REDIS_URL'),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        }
-    }
-}
-
 # Use in-memory cache for tests
 if "test" in sys.argv:
     CACHES = {
         "default": {
             "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "kowope-mvp-cache"
         }
     }
