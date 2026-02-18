@@ -20,8 +20,12 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
+from kowope.health import health_check
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+
+    path("health/", health_check),
 
     path('', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-root'),
 
