@@ -14,6 +14,8 @@ from drf_spectacular.types import OpenApiTypes
 from utils.phone import normalize_phone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.throttling import ScopedRateThrottle
+from django.core.cache import cache
+
 
 
 from datetime import timedelta
@@ -510,11 +512,26 @@ class DriverProfileView(generics.RetrieveAPIView):
     serializer_class = DriverProfileSerializer
 
     def get_object(self):
-        driver_profile = self.request.user.driver_profile
+        driver_profile = getattr(self.request.user, "driver_profile", None)
         if not driver_profile:
-            return Response({
-                "success": False,
-                "message": "Driver profile not found"
-            }, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"success": False, "message": "Driver profile not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
         return driver_profile
-    
+
+    def get(self, request, *args, **kwargs):
+        user_id = request.user.id
+        cache_key = f"driver_profile_{user_id}"
+        cached = cache.get(cache_key)
+
+        if cached:
+            return Response(cached)
+
+        driver_profile = self.get_object()
+        serializer = self.get_serializer(driver_profile, context={"request": request})
+        data = serializer.data
+
+        # Cache per-user for 30s so signed URLs stay valid
+        cache.set(cache_key, data, timeout=30)
+        return Response(data)

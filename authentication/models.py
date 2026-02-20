@@ -5,9 +5,10 @@ import uuid
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
-from datetime import timedelta
+import time
 from utils.phone import normalize_phone
 from cloudinary.models import CloudinaryField
+import cloudinary.utils
 
 
 
@@ -225,12 +226,17 @@ class DriverDocument(models.Model):
     verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
-    def get_document_url(self): 
+    def get_signed_url(self, expires_in=600): 
+
+        if not self.document_file:
+            return None 
+         
         url, _ = cloudinary.utils.cloudinary_url(
             self.document_file.public_id, 
             resource_type="auto", 
-            type="authenticated", 
+            type="private", 
             sign_url=True,
-            expires_at=int((timezone.now() + timedelta(minutes=5)).timestamp()) # URL expires in 5 minutes
+            expires_at=int((time.time()) + expires_in # URL expires in 10 minutes
             )
+        )
         return url
