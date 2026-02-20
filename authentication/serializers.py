@@ -5,6 +5,8 @@ from .models import DriverDocument, User, DriverProfile, OTP
 from drf_spectacular.utils import extend_schema_field
 from django.utils import timezone
 import os
+import time 
+import cloudinary.utils
 from utils.phone import normalize_phone
 
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes 
@@ -341,13 +343,47 @@ class DriverDocumentSerializer(serializers.ModelSerializer):
         return None
 
 
+
+
+class DriverDocumentSerializer(serializers.ModelSerializer):
+    document_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DriverDocument
+        fields = [
+            "id",
+            "document_type",
+            "status",
+            "verified",
+            "uploaded_at",
+            "document_url",
+        ]
+
+    def get_document_url(self, obj):
+        request = self.context.get("request")
+        user = request.user if request else None
+        is_admin = hasattr(user, "admin_profile")
+
+        if not obj.document_file:
+            return None
+
+        if not user:
+            return None
+        
+        if obj.driver.user != user and not is_admin:
+            return None
+        
+        return obj.get_signed_url()
+
+
 class DriverProfileSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(source="user.id", read_only=True)
     phone_number = serializers.CharField(source="user.phone_number", read_only=True)
+    role = serializers.CharField(source="user.role", read_only=True)
     is_phone_verified = serializers.BooleanField(source="user.is_phone_verified", read_only=True)
     verified = serializers.BooleanField(source="user.verified", read_only=True)
     created_at = serializers.DateTimeField(source="user.created_at", read_only=True)
-    documents = DriverDocumentSerializer(source="document")
+    documents = DriverDocumentSerializer(source="document", read_only=True)
 
     class Meta:
         model = DriverProfile
@@ -355,9 +391,12 @@ class DriverProfileSerializer(serializers.ModelSerializer):
             'id', 
             'full_name', 
             'phone_number', 
+            'role',
+            'area',
+            'lga',
             'license_number', 
             'is_phone_verified', 
             'verified', 
             'documents',
             'created_at',
-            ]
+            ] 
