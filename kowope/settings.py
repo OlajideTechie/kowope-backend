@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 import os
 from datetime import timedelta
 import dj_database_url
-import redis
 
 load_dotenv()
 
@@ -30,6 +29,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
+
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
@@ -58,6 +59,8 @@ INSTALLED_APPS = [
 
     # Local apps
     'authentication',
+    'payments',
+    'ticket',
 ]
 
 MIDDLEWARE = [

@@ -2,6 +2,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 from payments.models import Payment
+from authentication.models import DriverProfile
 
 class Ticket(models.Model):
 
@@ -15,20 +16,16 @@ class Ticket(models.Model):
     payment = models.OneToOneField(
         Payment,
         on_delete=models.CASCADE,
-        related_name="ticket"
+        related_name="payment_tickets"
     )
 
     driver = models.ForeignKey(
-        "DriverProfile",
+        "authentication.DriverProfile",
         on_delete=models.CASCADE,
-        related_name="tickets"
+        related_name="driver_tickets"
     )
 
-    zone = models.ForeignKey(
-        "Zone",
-        on_delete=models.CASCADE,
-        related_name="tickets"
-    )
+    area = models.CharField(max_length=100)
 
     ticket_number = models.CharField(max_length=50, unique=True)
 
@@ -42,11 +39,13 @@ class Ticket(models.Model):
 
     valid_for_date = models.DateField()  # The date for which the ticket is valid, e.g., the date of payment
 
+    
+
     class Meta:
         indexes = [
             models.Index(fields=["ticket_number"]),
             models.Index(fields=["driver"]),
-            models.Index(fields=["zone"]),
+            models.Index(fields=["area"]),
             models.Index(fields=["status"]),
         ]
 

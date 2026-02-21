@@ -2,11 +2,13 @@ from django.urls import path
 from .views import (
     InitializePaymentView,
     PaystackWebhookView,
-    PaymentStatusView
+    verify_payment_view
 )
 
+app_name = 'payments'
+
 urlpatterns = [
-    path("initialize/", InitializePaymentView.as_view()),
-    path("webhook/paystack/", PaystackWebhookView.as_view()),
-    path("status/<str:reference>/", PaymentStatusView.as_view()),
+    path("initiate", InitializePaymentView.as_view(), name='initiate-payment'),
+    # path("webhook/paystack", PaystackWebhookView.as_view(), name='paystack-webhook'),
+    path("status/<str:reference>", verify_payment_view.as_view(), name='refence-status'),
 ]

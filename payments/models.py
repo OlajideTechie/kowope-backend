@@ -15,7 +15,7 @@ class Payment(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     driver = models.ForeignKey(
-        "DriverProfile",
+        "authentication.DriverProfile",
         on_delete=models.CASCADE,
         related_name="payments"
     )
@@ -25,7 +25,9 @@ class Payment(models.Model):
         unique=True,  # Paystack reference
     )
 
-    amount = models.DecimalField(max_digits=12, decimal_places=2) # Amount in Naira, e.g., 500.00 for ₦500.00
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=500) # Amount in Naira, e.g., 500.00 for ₦500.00
+
+    currency = models.CharField(max_length=10, default='NGN')
 
     payment_date = models.DateField()  # Daily remittance target
 
@@ -38,7 +40,7 @@ class Payment(models.Model):
     provider_response = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         indexes = [

@@ -33,6 +33,8 @@ urlpatterns = [
     path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='docs'),
 
     path('api/v1/auth/', include('authentication.urls', namespace='authentication')),
+
+     path('api/v1/payment/', include('payments.urls', namespace='payments')),
 ]
 
 # Serve media files in development

@@ -6,14 +6,26 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 
 from .models import Payment
-from .serializers import PaymentInitializeSerializer, TicketSerializer
-from services import PaystackService
-from payments.task import generate_ticket
+from authentication.models import DriverProfile
+from .serializers import PaymentInitializeSerializer, PaymentInitializeSerializer
+from ticket.serializers import TicketSerializer
+from utils.task import generate_ticket
 from utils.paystack_signature import verify_paystack_signature
 
+from services.paystack import PaystackService
+from rest_framework import status, permissions
 
+import json
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+TICKET_AMOUNT = 10
 
 class InitializePaymentView(APIView):
+    serializer_class = PaymentInitializeSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
 
@@ -23,7 +35,7 @@ class InitializePaymentView(APIView):
         )
         serializer.is_valid(raise_exception=True)
 
-        driver = request.user.driverprofile
+        driver = request.user.driver_profile
         amount = serializer.validated_data["amount"]
 
         reference = str(uuid.uuid4())
@@ -31,12 +43,14 @@ class InitializePaymentView(APIView):
         payment = Payment.objects.create(
             driver=driver,
             reference=reference,
-            amount=amount,
+            amount=TICKET_AMOUNT,
+            currency='NGN',
             payment_date=timezone.now().date()
         )
+        
 
         response = PaystackService.initialize_payment(
-            email=request.user.email,
+            payment=payment,
             amount=amount,
             reference=reference
         )
@@ -52,7 +66,7 @@ class verify_payment_view(APIView):
         payment = get_object_or_404(
             Payment,
             reference=reference,
-            driver=request.user.driverprofile
+            driver=request.user.driver_profile
         )
 
         data = {
@@ -81,40 +95,66 @@ class PaystackWebhookView(APIView):
     permission_classes = []
 
     def post(self, request):
+        try:
+            # Step 1: Verify signature
+            try:
+                if not verify_paystack_signature(request):
+                    logger.warning("Invalid Paystack signature")
+                    return Response({"error": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                logger.exception(f"Signature verification failed: {e}")
+                return Response({"error": "Signature verification failed"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not verify_paystack_signature(request):
-            return Response(
-                {"error": "Invalid signature"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            # Step 2: Load JSON safely
+            try:
+                event = json.loads(request.body)
+            except Exception as e:
+                logger.exception(f"Failed to parse webhook payload: {e}")
+                return Response(status=400)
 
-        event = request.data
+            # Step 3: Only handle charge.success events
+            if event.get("event") != "charge.success":
+                logger.info(f"Ignored event: {event.get('event')}")
+                return Response(status=200)
 
-        if event["event"] != "charge.success":
+            reference = event["data"].get("reference")
+            if not reference:
+                logger.warning("No reference found in event")
+                return Response(status=200)
+
+            # Step 4: Fetch payment safely
+            payment = Payment.objects.filter(reference=reference).first()
+            if not payment:
+                logger.warning(f"No payment found for reference {reference}")
+                return Response(status=200)
+
+            if payment.status == Payment.Status.SUCCESS:
+                logger.info(f"Payment already marked success for reference {reference}")
+                return Response(status=200)
+
+            # Step 5: Verify payment with Paystack API
+            try:
+                verify = PaystackService.verify_payment(reference)
+            except Exception as e:
+                logger.exception(f"Paystack verification failed: {e}")
+                return Response(status=200)  # Return 200 to prevent retries
+
+            if verify.get("data", {}).get("status") == "success":
+                payment.status = Payment.Status.SUCCESS
+                payment.provider_response = verify
+                payment.save(update_fields=["status", "provider_response"])
+                # Queue ticket generation safely
+                try:
+                    generate_ticket(payment.id)
+                except Exception as e:
+                    logger.exception(f"Failed to enqueue ticket generation: {e}")
+            else:
+                payment.status = Payment.Status.FAILED
+                payment.save(update_fields=["status"])
+
             return Response(status=200)
 
-        reference = event["data"]["reference"]
-
-        payment = Payment.objects.filter(reference=reference).first()
-
-        if not payment:
+        except Exception as e:
+            # Catch everything to prevent 502
+            logger.exception(f"Unexpected webhook error: {e}")
             return Response(status=200)
-
-        if payment.status == Payment.Status.SUCCESS:
-            return Response(status=200)
-
-        verify = PaystackService.verify_payment(reference)
-
-        if verify["data"]["status"] == "success":
-
-            payment.status = Payment.Status.SUCCESS
-            payment.provider_response = verify
-            payment.save(update_fields=["status", "provider_response"])
-
-            generate_ticket.delay(str(payment.id))
-
-        else:
-            payment.status = Payment.Status.FAILED
-            payment.save(update_fields=["status"])
-
-        return Response(status=200)
