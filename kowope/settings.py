@@ -362,7 +362,7 @@ if "test" in sys.argv:
     }
 
 
-CRONJOBS = [
-    # Run every day at 00:00 Nigeria time
-    ('0 0 * * *', 'ticket.cron.expire_daily_tickets')
-]
+# CRONJOBS = [
+#     # Run every day at 00:00 Nigeria time
+#     ('0 0 * * *', 'ticket.cron.expire_daily_tickets')
+# ]
