@@ -17,7 +17,6 @@ from rest_framework.throttling import ScopedRateThrottle
 from django.core.cache import cache
 
 
-
 from datetime import timedelta
 from datetime import datetime
 
@@ -38,8 +37,9 @@ from authentication.serializers import (
     ResendOTPSerializer,
 )
 
-from authentication.services.sms_service import SMSService
-from authentication.services.otp_service import OTPService
+from services.sms_service import SMSService
+from services.otp_service import OTPService
+
 
 import logging
 

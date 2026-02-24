@@ -30,6 +30,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
 
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', 'True') == 'True'
 
@@ -54,9 +56,12 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'cloudinary',
     'cloudinary_storage',
+    'django_crontab',
 
     # Local apps
     'authentication',
+    'payments',
+    'ticket',
 ]
 
 MIDDLEWARE = [
@@ -182,12 +187,11 @@ SIMPLE_JWT = {
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
-
 USE_I18N = True 
 
 USE_TZ = True
 
+TIME_ZONE = 'Africa/Lagos'
 
 # Static files (CSS, JavaScript, Images)
 #DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
@@ -356,3 +360,9 @@ if "test" in sys.argv:
             "LOCATION": "kowope-mvp-cache"
         }
     }
+
+
+CRONJOBS = [
+    # Run every day at 00:00 Nigeria time
+    ('0 0 * * *', 'ticket.cron.expire_daily_tickets')
+]

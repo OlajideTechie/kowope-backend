@@ -399,4 +399,4 @@ class DriverProfileSerializer(serializers.ModelSerializer):
             'verified', 
             'documents',
             'created_at',
-            ] 
+            ]        

@@ -12,7 +12,6 @@ import cloudinary.utils
 
 
 
-
 # User model
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
@@ -55,11 +54,38 @@ class User(AbstractBaseUser, PermissionsMixin):
         return f"{self.role} | {self.phone_number or self.email}"
 
 
+# Agent Profile, agents are responsible for managing drivers in specific locations and providing support
+class AgentProfile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="agent_profile")
+
+    location = models.CharField(max_length=100)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    """
+    Indexes for optimizing queries on is_active field for agent profiles
+    """
+    class Meta:
+        indexes = [
+            models.Index(fields=["is_active"]),
+        ]
+
 
 # Driver Profile
 class DriverProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="driver_profile")
+
+    agent = models.ForeignKey(
+        AgentProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="drivers"
+    )
 
     full_name = models.CharField(max_length=50)
 
@@ -139,26 +165,6 @@ class OTP(models.Model):
 
     def has_expired(self) -> bool:
         return timezone.now() > self.expires_at
-
-
-# Agent Profile, agents are responsible for managing drivers in specific locations and providing support
-class AgentProfile(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="agent_profile")
-
-    location = models.CharField(max_length=100)
-    is_active = models.BooleanField(default=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    """
-    Indexes for optimizing queries on is_active field for agent profiles
-    """
-    class Meta:
-        indexes = [
-            models.Index(fields=["is_active"]),
-        ]
 
 
 

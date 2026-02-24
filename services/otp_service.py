@@ -4,7 +4,7 @@ from datetime import timedelta
 import random
 
 from authentication.models import OTP
-from authentication.services.sms_service import SMSService
+from services.sms_service import SMSService
 from utils.phone import normalize_phone
 
 
