@@ -11,9 +11,13 @@ from .serializers import PaymentInitializeSerializer, PaymentInitializeSerialize
 from ticket.serializers import TicketSerializer
 from utils.task import generate_ticket
 from utils.paystack_signature import verify_paystack_signature
+from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiResponse
+from datetime import time
 
 from services.paystack import PaystackService
 from rest_framework import status, permissions
+from ticket.utils import expire_old_tickets_once_per_day
 
 import json
 
@@ -23,11 +27,27 @@ logger = logging.getLogger(__name__)
 
 TICKET_AMOUNT = 10
 
+
+@extend_schema(tags=["Payments"],)
 class InitializePaymentView(APIView):
     serializer_class = PaymentInitializeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    # Expire tickets once per day before allowing new purchase
+    expire_old_tickets_once_per_day()
+
+    def is_before_cutoff(self):
+        """Checks if current time is before ticket purchase cutoff."""
+        now = timezone.localtime()
+        cutoff_time = time(22, 00)  # 10:00 PM
+        return now.time() < cutoff_time
+
     def post(self, request):
+        if not self.is_before_cutoff():
+            return Response(
+                {"error": "Ticket purchase cutoff reached. Try again tomorrow."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         serializer = PaymentInitializeSerializer(
             data=request.data,
@@ -45,7 +65,7 @@ class InitializePaymentView(APIView):
             reference=reference,
             amount=TICKET_AMOUNT,
             currency='NGN',
-            payment_date=timezone.now().date()
+            payment_date=timezone.localtime()
         )
         
 
@@ -59,6 +79,11 @@ class InitializePaymentView(APIView):
     
 
 
+@extend_schema(
+    tags=["Payments"],
+    responses={200: None},
+    description="Verify a payment with Paystack"
+    )
 class verify_payment_view(APIView):
 
   def get(self, request, reference):
@@ -87,8 +112,9 @@ class verify_payment_view(APIView):
         return Response(data)
 
 
-
-
+@extend_schema(tags=["Payments"],
+        exclude=True        
+    )
 class PaystackWebhookView(APIView):
 
     authentication_classes = []

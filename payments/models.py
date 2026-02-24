@@ -25,7 +25,7 @@ class Payment(models.Model):
         unique=True,  # Paystack reference
     )
 
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=500) # Amount in Naira, e.g., 500.00 for ₦500.00
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=10) # Amount in Naira, e.g., 500.00 for ₦500.00
 
     currency = models.CharField(max_length=10, default='NGN')
 

@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'cloudinary',
     'cloudinary_storage',
+    'django_crontab',
 
     # Local apps
     'authentication',
@@ -360,3 +361,8 @@ if "test" in sys.argv:
         }
     }
 
+
+CRONJOBS = [
+    # Run every day at 00:00 Nigeria time
+    ('0 0 * * *', 'ticket.cron.expire_daily_tickets')
+]

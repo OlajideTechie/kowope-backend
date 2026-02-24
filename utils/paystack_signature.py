@@ -21,6 +21,6 @@ def verify_paystack_signature(request):
     This function compares the computed hash with the signature provided
     in the request headers and returns True if they match, indicating that the request is authentic, or False otherwise.
     """
-    # return hmac.compare_digest(computed_hash, signature)
+    return hmac.compare_digest(computed_hash, signature)
 
-    return True
+    # return True
