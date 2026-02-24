@@ -56,7 +56,6 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'cloudinary',
     'cloudinary_storage',
-    'django_crontab',
 
     # Local apps
     'authentication',
