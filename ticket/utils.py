@@ -1,24 +1,33 @@
 from django.utils import timezone
 from django.core.cache import cache
-from ticket.models import Ticket
+from django.db import ProgrammingError, OperationalError
+from django.apps import apps
 
-EXPIRATION_CACHE_KEY = "last_ticket_expiration_date"
 
 def expire_old_tickets_once_per_day():
-    today = timezone.localdate()
+    """
+    Lazily expires old tickets.
+    Safe during migrations and fresh deployments.
+    Runs at most once per day.
+    """
 
-    last_run = cache.get(EXPIRATION_CACHE_KEY)
+    today = timezone.now().date()
 
-    # If already run today, do nothing
-    if last_run == str(today):
+    # Prevent multiple executions per day
+    if cache.get("ticket_expire_last_run") == today:
         return
 
-    expired_count = Ticket.objects.filter(
-        status=Ticket.Status.ACTIVE,
-        valid_for_date__lt=today
-    ).update(status=Ticket.Status.INACTIVE)
+    try:
+        Ticket = apps.get_model("ticket", "Ticket")
 
-    # Store today's date in cache
-    cache.set(EXPIRATION_CACHE_KEY, str(today), timeout=60 * 60 * 24)
+        Ticket.objects.filter(
+            expiry_date__lt=today,
+            status=Ticket.Status.ACTIVE
+        ).update(status=Ticket.Status.INACTIVE)
 
-    print(f"[Lazy Expiration] {expired_count} tickets expired.")
+        cache.set("ticket_expire_last_run", today, timeout=86400)
+
+    except (ProgrammingError, OperationalError):
+        # Happens during migrations or before table exists
+        # Fail silently to avoid breaking startup
+        return
