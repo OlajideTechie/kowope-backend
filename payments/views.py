@@ -33,12 +33,21 @@ class InitializePaymentView(APIView):
     serializer_class = PaymentInitializeSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def is_before_cutoff(self):
+        """
+        Returns True if current time is before payment cutoff.
+        Example cutoff: 6PM
+        """
+        now = timezone.localtime().time()
+        cutoff_time = time(22, 0)  # 10:00 PM
+        return now <= cutoff_time
+
     def post(self, request):
         expire_old_tickets_once_per_day()
 
         if not self.is_before_cutoff():
             return Response(
-                {"error": "Ticket purchase cutoff reached. Try again tomorrow."},
+                {"error": "Payment window has closed for today."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
