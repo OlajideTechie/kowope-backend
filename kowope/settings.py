@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 import os
 from datetime import timedelta
 import dj_database_url
+from corsheaders.defaults import default_headers
 
 load_dotenv()
 
@@ -314,16 +315,14 @@ LOGGING = {
 
 
 # Cors settings
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = False
 
-CORS_ALLOWED_ORIGINS = [
-    "https://kowope-frontend.vercel.app",
+CORS_ALLOWED_ORIGINS = os.environ.get(
+    "CORS_ALLOWED_ORIGINS",
     "http://localhost:3000",
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-]
+).split(",")
 
-CORS_ALLOW_HEADERS = [
+CORS_ALLOW_HEADERS = list(default_headers) + [
     "accept",
     "accept-encoding",
     "authorization",
@@ -333,7 +332,7 @@ CORS_ALLOW_HEADERS = [
     "x-requested-with",
 ]
 
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_CREDENTIALS = False
 
 SESSION_COOKIE_SECURE = True
 
