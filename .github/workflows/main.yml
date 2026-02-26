@@ -28,7 +28,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=ticket --cov-report=term-missing test_ticket.py
+          pytest --cov= --cov-report=html --cov-report=term-missing test_ticket.py
 
       - name: Upload coverage report artifact
         uses: actions/upload-artifact@v4
