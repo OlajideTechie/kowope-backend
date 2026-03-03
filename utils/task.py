@@ -14,6 +14,13 @@ from django.utils import timezone
 This module defines a synchronous tasks related to payment processing and ticket generation.
 The main task is `generate_ticket`, which creates a ticket for a successful payment.
 """
+
+def generate_unique_qr_code():
+    while True:
+        qr = uuid.uuid4()
+        if not Ticket.objects.filter(qr_code=qr).exists():
+            return qr
+        
 def generate_ticket(payment_id):
     """
     Generate a ticket for a payment, ensuring:
@@ -56,6 +63,7 @@ def generate_ticket(payment_id):
                 area=payment.driver.area,
                 valid_for_date=today,
                 ticket_number=f"KWP-LAG-{today.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}",
+                qr_code=generate_unique_qr_code(), 
                 status=Ticket.Status.ACTIVE,
             )
             return ticket
