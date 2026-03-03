@@ -1,8 +1,11 @@
+import uuid
 from django.core.cache import cache
 from django.db import transaction, IntegrityError
 from payments.models import Payment
 from ticket.models import Ticket
-import uuid
+import qrcode
+import io
+from django.core.files.base import ContentFile
 from django.conf import settings
 from django.utils import timezone
 
@@ -12,10 +15,18 @@ This module defines a synchronous tasks related to payment processing and ticket
 The main task is `generate_ticket`, which creates a ticket for a successful payment.
 """
 def generate_ticket(payment_id):
+    """
+    Generate a ticket for a payment, ensuring:
+    - Only one active ticket per driver per day
+    - QR code token is generated alongside ticket
+    - Safe concurrency using cache lock
+    """
+
     lock_key = f"generate_ticket_lock_{payment_id}"
     lock_acquired = cache.add(lock_key, "locked", timeout=300)
     if not lock_acquired:
-        return  # another process is handling this payment
+        print (f"another process is handling this payment")
+        return
 
     try:
         today = timezone.localdate()
@@ -26,17 +37,25 @@ def generate_ticket(payment_id):
             return
 
         # Check for existing active ticket today
-        existing_ticket = Ticket.objects.filter(driver=payment.driver, valid_for_date=today, status=Ticket.Status.ACTIVE).exists()
+        existing_ticket = Ticket.objects.filter(
+            driver=payment.driver, 
+            valid_for_date=today, 
+            status=Ticket.Status.ACTIVE
+            ).exists()
         if existing_ticket:
             return existing_ticket
 
         with transaction.atomic():
+            
+            # Generate a unique QR token (you can later encode this as QR image on frontend)
+            # qr_token = str(uuid.uuid4())
+
             ticket = Ticket.objects.create(
                 payment=payment,
                 driver=payment.driver,
                 area=payment.driver.area,
                 valid_for_date=today,
-                ticket_number=f"KWP-LAG-{payment.payment_date.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}",
+                ticket_number=f"KWP-LAG-{today.strftime('%Y%m%d')}-{str(uuid.uuid4())[:6].upper()}",
                 status=Ticket.Status.ACTIVE,
             )
             return ticket

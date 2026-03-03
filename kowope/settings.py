@@ -164,10 +164,10 @@ REST_FRAMEWORK = {
         'user': '20/day',
         'anon': '10/day', 
         'signup': '5/minute',
-        'otp_request': '2/min',
+        'otp_request': '5/min',
         'otp_verify': '5/min',
-        'login': '3/minute',
-        'reset_pin': '3/min',
+        'login': '5/minute',
+        'reset_pin': '5/min',
     }
 }
 
@@ -364,3 +364,5 @@ if "test" in sys.argv:
 #     # Run every day at 00:00 Nigeria time
 #     ('0 0 * * *', 'ticket.cron.expire_daily_tickets')
 # ]
+
+FRONTEND_DOMAIN = os.getenv("FRONTEND_DOMAIN", "http://127.0.0.1:8000")
