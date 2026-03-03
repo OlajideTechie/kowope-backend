@@ -84,6 +84,7 @@ class InitializePaymentView(APIView):
 @extend_schema(
     tags=["Payments"],
     responses={200: None},
+    exclude=True, 
     description="Verify a payment with Paystack"
     )
 class verify_payment_view(APIView):
@@ -118,10 +119,9 @@ class verify_payment_view(APIView):
         exclude=True        
     )
 class PaystackWebhookView(APIView):
-
+    
     authentication_classes = []
     permission_classes = []
-
     def post(self, request):
         try:
             # Step 1: Verify signature

@@ -59,3 +59,4 @@ whitenoise==6.11.0
 cloudinary>=1.32.0
 django-cloudinary-storage==0.3.0
 phonenumbers==8.13.11
+qrcode

@@ -2,6 +2,7 @@ import uuid
 from django.db import models
 from django.utils import timezone
 from payments.models import Payment
+from django.core import signing
 from authentication.models import DriverProfile
 
 class Ticket(models.Model):
@@ -29,6 +30,8 @@ class Ticket(models.Model):
 
     ticket_number = models.CharField(max_length=50, unique=True)
 
+    qr_code = models.UUIDField(default=uuid.uuid4, unique=True, editable=False, null=False)
+
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -39,10 +42,15 @@ class Ticket(models.Model):
 
     valid_for_date = models.DateField() # Ticket valid date in Nigeria local date
 
+
+    # ---------------------------
+    # Computed Logic
+    # ---------------------------
+
     # Dynamically check if ticket is expired
     @property
     def is_expired(self):
-        return timezone.now().date() > self.valid_for_date
+        return timezone.now().localdate() > self.valid_for_date
     
     @property
     def is_active(self):
@@ -57,11 +65,34 @@ class Ticket(models.Model):
         Return INACTIVE if the ticket is past its valid date or revoked.
         Otherwise ACTIVE.
         """
-        if self.status == "REVOKED":
+        if self.status == self.Status.REVOKED:
             return "REVOKED"
         if self.valid_for_date < timezone.localdate():
             return "INACTIVE"
         return "ACTIVE"
+    
+
+    # ---------------------------
+    # QR Token Generation
+    # ---------------------------
+
+    def generate_signed_token(self):
+        return signing.dumps(
+            {"ticket_id": str(self.id)}
+        )
+
+    def generate_qr_code(self):
+        """Generate a signed QR code token for this ticket."""
+
+        data = {"ticket_id": str(self.id)}
+        token = signing.dumps(data)
+        self.qr_code = token
+
+    def save(self, *args, **kwargs):
+        if not self.qr_code:
+            self.generate_qr_token()
+        super().save(*args, **kwargs)
+
 
     class Meta:
         indexes = [
@@ -87,5 +118,5 @@ class Ticket(models.Model):
             )
     ]   
 
-def __str__(self):
+    def __str__(self):
         return self.ticket_number
