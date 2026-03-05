@@ -27,7 +27,8 @@ class PaystackService:
         data = {
             "email": email,
             "amount": int(amount * 100),  # Paystack expects kobo
-            "reference": reference
+            "reference": reference,
+            "callback_url": settings.PAYSTACK_REDIRECT_URL
         }
 
         response = requests.post(url, json=data, headers=headers)

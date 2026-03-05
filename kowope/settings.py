@@ -366,3 +366,9 @@ if "test" in sys.argv:
 # ]
 
 FRONTEND_DOMAIN = os.getenv("FRONTEND_DOMAIN", "http://127.0.0.1:8000")
+
+PENDING_TICKET_EXPIRY_MINUTES = 10
+
+TICKET_AMOUNT = 500
+
+PAYSTACK_REDIRECT_URL = os.getenv("PAYSTACK_REDIRECT_URL", "http://127.0.0.1:8000/api/v1/payment/callback")
