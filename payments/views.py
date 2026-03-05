@@ -158,7 +158,7 @@ class verify_payment_view(APIView):
 class PaystackWebhookView(APIView):
     authentication_classes = []
     permission_classes = []
-
+    
     def post(self, request):
         """
         Handles Paystack webhook events, especially 'charge.success'.
