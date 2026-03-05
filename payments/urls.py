@@ -2,7 +2,8 @@ from django.urls import path
 from .views import (
     InitializePaymentView,
     PaystackWebhookView,
-    verify_payment_view
+    verify_payment_view,
+    PaymentCallbackView
 )
 
 app_name = 'payments'
@@ -10,5 +11,6 @@ app_name = 'payments'
 urlpatterns = [
     path("initiate", InitializePaymentView.as_view(), name='initiate-payment'),
     path("webhook/paystack", PaystackWebhookView.as_view(), name='paystack-webhook'),
+     path("callback", PaymentCallbackView.as_view(), name='payment-callback'),
     path("status/<str:reference>", verify_payment_view.as_view(), name='refence-status'),
 ]

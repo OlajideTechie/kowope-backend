@@ -12,6 +12,14 @@ class Payment(models.Model):
         FAILED = "FAILED"
         REFUNDED = "REFUNDED"
 
+    class Channel(models.TextChoices):
+        CARD = "card"
+        BANK = "bank"
+        USSD = "ussd"
+        TRANSFER = "transfer"
+        QR = "qr"
+        MOBILE_MONEY = "mobile_money"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     driver = models.ForeignKey(
@@ -25,11 +33,11 @@ class Payment(models.Model):
         unique=True,  # Paystack reference
     )
 
-    amount = models.DecimalField(max_digits=12, decimal_places=2, default=10) # Amount in Naira, e.g., 500.00 for ₦500.00
+    amount = models.DecimalField(max_digits=12, decimal_places=2) # Amount in Naira, e.g., 500.00 for ₦500.00
 
     currency = models.CharField(max_length=10, default='NGN')
 
-    payment_date = models.DateField()  # Daily remittance target
+    payment_date = models.DateField(default=timezone.now)  # Daily remittance target
 
     status = models.CharField(
         max_length=20,
@@ -37,7 +45,26 @@ class Payment(models.Model):
         default=Status.PENDING
     )
 
-    provider_response = models.JSONField(null=True, blank=True)
+    provider = models.CharField(
+        max_length=50,
+        default="paystack"
+    )
+
+    gateway_response = models.JSONField(null=True, blank=True)
+
+    channel = models.CharField(
+        max_length=50,
+        choices=Channel.choices,
+        null=True,
+        blank=True
+    )
+
+    authorization_url = models.URLField(null=True, blank=True)
+
+    paid_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
