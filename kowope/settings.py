@@ -164,8 +164,8 @@ REST_FRAMEWORK = {
         'user': '20/day',
         'anon': '10/day', 
         'signup': '5/minute',
-        'otp_request': '5/min',
-        'otp_verify': '5/min',
+        'otp_request': '3/min',
+        'otp_verify': '3/min',
         'login': '5/minute',
         'reset_pin': '5/min',
     }
@@ -347,8 +347,12 @@ OTP_EXPIRY_SECONDS = 300  # 5 minutes
 
 # SMS provider toggle
 ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
-SMS_PROVIDER = "twilio"      
+SMS_PROVIDER = "twilio"
 
+# TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+# TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+# TWILIO_VERIFY_SERVICE_SID = os.getenv("TWILIO_VERIFY_SERVICE_SID")
+# TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER")
 
 # Use in-memory cache for tests
 if "test" in sys.argv:
