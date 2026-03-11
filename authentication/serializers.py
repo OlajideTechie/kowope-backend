@@ -53,10 +53,7 @@ class DriverSignupSerializer(serializers.Serializer):
     def validate(self, data):
 
         if DriverProfile.objects.filter(license_number=data["license_number"]).exists():
-            raise serializers.ValidationError("Driver with this license number already exists")
-
-        if DriverProfile.objects.filter(phone_number=data["phone_number"].strip()).exists():
-            raise serializers.ValidationError("Driver with this phone number already exists")
+            raise serializers.ValidationError("License number already registered")
 
         if not data.get("license_number"):
             raise serializers.ValidationError("License number is required")
@@ -103,6 +100,11 @@ class DriverSignupSerializer(serializers.Serializer):
         return value
     
     def validate_phone_number(self, value):
+
+        normalized = normalize_phone(value)
+        if DriverProfile.objects.filter(phone_number=normalized).exists():
+            raise serializers.ValidationError("Phone number already registered.")
+        
         if not value:
             raise serializers.ValidationError("Phone number is required")
         if not value.isdigit():
