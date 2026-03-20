@@ -127,9 +127,9 @@ class DriverSignupView(generics.CreateAPIView):
         }
 
         if settings.RETURN_OTP_IN_RESPONSE:
-           logger.info(f"Signup OTP for {self.user.phone_number}: {otp}")
+           logger.info(f"Signup OTP for {self.user.phone_number}: {otp.code}")
 
-        response_data["otp"] = otp
+        response_data["otp"] = otp.code
         
         return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -354,11 +354,14 @@ class ResendOTPView(APIView):
         serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        phone_number = normalize_phone(request.data.get("phone_number"))
+        # serializer validated driver_profile
+        driver_profile = serializer.driver_profile
+
+        #phone_number = normalize_phone(request.data.get("phone_number"))
 
         # Resend OTP
         otp = OTPService.resend_otp(
-                 phone_number=phone_number,
+                 phone_number=driver_profile.phone_number,
                  purpose="signup"
         )
 

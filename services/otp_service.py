@@ -112,6 +112,5 @@ class OTPService:
 
         return {
         "message": "A new OTP has been sent",
-        "otp_id": otp_obj.id,
         "otp_code": otp_obj.code
     }
