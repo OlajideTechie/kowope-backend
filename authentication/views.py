@@ -15,6 +15,7 @@ from utils.phone import normalize_phone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.throttling import ScopedRateThrottle
 from django.core.cache import cache
+from django.conf import settings
 
 
 from datetime import timedelta
@@ -109,18 +110,28 @@ class DriverSignupView(generics.CreateAPIView):
         # generate auth token
         refresh = RefreshToken.for_user(self.user)
 
-        OTPService.create_otp(phone_number=self.user.phone_number, purpose="signup")
+        otp = OTPService.create_otp(
+            phone_number=self.user.phone_number, 
+            purpose="signup"
+        )
 
-        return Response({
+        response_data = {
             "success": True,
             'user': UserSerializer(self.user).data,
             'full_name': self.user.driver_profile.full_name,
             'area': self.user.driver_profile.area,
             'lga': self.user.driver_profile.lga,
             'license_number': self.user.driver_profile.license_number,
-             'verified': self.user.driver_profile.verified,
-            'message': f'Driver Profile created successfully, an otp has been sent for phone verification.',
-        }, status=status.HTTP_201_CREATED) 
+            'verified': self.user.driver_profile.verified,
+            'message': f'Driver Profile created successfully, your verification otp has been sent',
+        }
+
+        if settings.RETURN_OTP_IN_RESPONSE:
+           logger.info(f"Signup OTP for {self.user.phone_number}: {otp}")
+
+        response_data["otp"] = otp
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 @extend_schema(
     request=DriverLoginSerializer,
@@ -345,24 +356,21 @@ class ResendOTPView(APIView):
 
         phone_number = normalize_phone(request.data.get("phone_number"))
 
-        if not phone_number:
-            return Response(
-                {"success": False, "message": "Phone number is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        normalized_phone = normalize_phone(phone_number)
-
-        user = User.objects.filter(phone_number=normalized_phone).first()
-
-        if user and not user.driver_profile.is_phone_verified:
-            OTPService.resend_otp(
-                 phone_number=normalized_phone,
+        # Resend OTP
+        otp = OTPService.resend_otp(
+                 phone_number=phone_number,
                  purpose="signup"
-                 
-            )
+        )
 
-        return Response({ "success": True, "message": "OTP has been resent to the phone number" }, status=status.HTTP_200_OK)
+        response_data = {
+            "success": True
+        }
+
+        # Only expose OTP in non-production environments
+        if settings.RETURN_OTP_IN_RESPONSE:
+            response_data["otp"] = otp
+
+        return Response(response_data, status=status.HTTP_200_OK)
     
 
 @extend_schema(
