@@ -267,7 +267,7 @@ class ResendOTPSerializer(serializers.Serializer):
              raise serializers.ValidationError("Phone number must be 11 digits long")
         if not User.objects.filter(phone_number=value, role="driver").exists():
             raise serializers.ValidationError("No driver found with this phone number")
-        if User.objects.filter(phone_number=value, role="driver", is_phone_verified=True).exists():
+        if DriverProfile.is_phone_verified:
             raise serializers.ValidationError("Phone number is already verified")
         return value
 

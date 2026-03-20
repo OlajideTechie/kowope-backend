@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.utils import timezone
 from datetime import timedelta
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 import random
 
 from authentication.models import OTP
@@ -38,7 +40,7 @@ class OTPService:
 
         code = OTPService.generate_otp()
 
-        otp = OTP.objects.create(
+        otp_obj = OTP.objects.create(
             phone_number=phone_number,
             code=code,
             purpose=purpose,
@@ -51,7 +53,7 @@ class OTPService:
         # Send OTP via SMS
         SMSService.send_otp(phone_number, code)
 
-        return otp
+        return otp_obj
 
     @staticmethod
     def verify_otp(phone_number: str, code: str, purpose: str):
@@ -78,12 +80,25 @@ class OTPService:
         return {"success": True, "message": "OTP verified successfully"}
 
     @staticmethod
-    def resend_otp(phone_number: str, purpose: str) -> dict:
+    def resend_otp(phone_number: str, purpose: str):
         """
         Invalidates old OTPs and sends a new one.
         """
 
         phone_number = normalize_phone(phone_number)
+
+       # Check cooldown BEFORE generating new OTP
+        cooldown_time = timezone.now() - timedelta(seconds=120)
+
+        recent_otp = OTP.objects.filter(
+        phone_number=phone_number,
+        purpose=purpose,
+        created_at__gte=cooldown_time,
+        is_used=False
+    ).exists()
+
+        if recent_otp:
+            raise ValidationError("Please wait before requesting another OTP")
 
         # Invalidate previous OTPs
         OTP.objects.filter(
@@ -91,11 +106,12 @@ class OTPService:
             purpose=purpose,
             is_used=False
         ).update(is_used=True)
-
-        otp = OTPService.create_otp(phone_number, purpose)
+        
+        # Create new OTP
+        otp_obj = OTPService.create_otp(phone_number, purpose)
 
         return {
-            "success": True,
-            "message": "A new OTP has been sent",
-            "otp_id": otp.id
-        }
+        "message": "A new OTP has been sent",
+        "otp_id": otp_obj.id,
+        "otp_code": otp_obj.code
+    }
