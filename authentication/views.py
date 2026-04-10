@@ -37,9 +37,11 @@ from authentication.serializers import (
     ChangePinSerializer,
     ResendOTPSerializer,
 )
+from authentication.models import AdminProfile, AgentProfile
 
 from services.sms_service import SMSService
 from services.otp_service import OTPService
+from middleware.permissions import IsDriver, IsAdmin, IsAgent
 
 
 import logging
@@ -127,9 +129,8 @@ class DriverSignupView(generics.CreateAPIView):
         }
 
         if settings.RETURN_OTP_IN_RESPONSE:
-           logger.info(f"Signup OTP for {self.user.phone_number}: {otp.code}")
-
-        response_data["otp"] = otp.code
+            logger.info(f"Signup OTP for {self.user.phone_number}: {otp.code}")
+            response_data["otp"] = otp.code
         
         return Response(response_data, status=status.HTTP_201_CREATED)
 
@@ -210,7 +211,7 @@ class DriverLoginView(APIView):
     }
 )
 class DriverLogoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsDriver]
     serializer_class = DriverLogoutSerializer
 
     def post(self, request):
@@ -343,7 +344,7 @@ class VerifyOTPView(APIView):
     }
 )
 class ResendOTPView(APIView):
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [IsDriver]
     serializer_class = ResendOTPSerializer
 
     throttle_classes = [ScopedRateThrottle]
@@ -392,7 +393,7 @@ class ResendOTPView(APIView):
 )
 class ChangePinView(APIView):
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsDriver]
     serializer_class = ChangePinSerializer
 
     def post(self, request):
@@ -519,7 +520,7 @@ class ResetPinView(APIView):
     }
 )
 class DriverProfileView(generics.RetrieveAPIView):
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsDriver]
     serializer_class = DriverProfileSerializer
 
     def get_object(self):
@@ -546,3 +547,104 @@ class DriverProfileView(generics.RetrieveAPIView):
         # Cache per-user for 30s so signed URLs stay valid
         cache.set(cache_key, data, timeout=30)
         return Response(data)
+
+
+@extend_schema(
+    request=StaffLoginSerializer,
+    tags=["Admin"],
+    responses={
+        200: OpenApiResponse(description="Admin logged in successfully"),
+        401: OpenApiResponse(description="Invalid credentials or insufficient role"),
+    },
+)
+class AdminLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        serializer = StaffLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data
+
+        if user.role not in ("admin", "super_admin"):
+            return Response(
+                {"success": False, "message": "Access denied."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
+        expires_in = datetime.fromtimestamp(access_token.payload["exp"]) - datetime.now()
+
+        admin_profile = getattr(user, "admin_profile", None)
+
+        logger.info(f"Admin logged in: {user.email}")
+
+        return Response(
+            {
+                "success": True,
+                "result": {
+                    "user": UserSerializer(user).data,
+                    "level": admin_profile.level if admin_profile else user.role,
+                    "access_token": str(access_token),
+                    "refresh_token": str(refresh),
+                    "expires_in": expires_in.total_seconds(),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+@extend_schema(
+    request=StaffLoginSerializer,
+    tags=["Agent"],
+    responses={
+        200: OpenApiResponse(description="Agent logged in successfully"),
+        403: OpenApiResponse(description="Access denied"),
+    },
+)
+class AgentLoginView(APIView):
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+    def post(self, request):
+        serializer = StaffLoginSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data
+
+        if user.role != "agent":
+            return Response(
+                {"success": False, "message": "Access denied."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        agent_profile = getattr(user, "agent_profile", None)
+        if not agent_profile:
+            return Response(
+                {"success": False, "message": "Agent profile not found."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        refresh = RefreshToken.for_user(user)
+        access_token = refresh.access_token
+        expires_in = datetime.fromtimestamp(access_token.payload["exp"]) - datetime.now()
+
+        logger.info(f"Agent logged in: {user.email}")
+
+        return Response(
+            {
+                "success": True,
+                "result": {
+                    "user": UserSerializer(user).data,
+                    "status": agent_profile.status,
+                    "access_token": str(access_token),
+                    "refresh_token": str(refresh),
+                    "expires_in": expires_in.total_seconds(),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )

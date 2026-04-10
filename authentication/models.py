@@ -2,7 +2,7 @@ from fileinput import filename
 import cloudinary
 from django.db import models
 import uuid
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
+from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
 import time
@@ -10,6 +10,21 @@ from utils.phone import normalize_phone
 from cloudinary.models import CloudinaryField
 import cloudinary.utils
 
+
+class UserManager(BaseUserManager):
+    def create_user(self, email=None, password=None, **extra_fields):
+        if email:
+            email = self.normalize_email(email)
+        user = self.model(email=email, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_superuser(self, email, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        extra_fields.setdefault("role", "super_admin")
+        return self.create_user(email, password, **extra_fields)
 
 
 # User model
@@ -33,6 +48,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     created_at = models.DateTimeField(auto_now_add=True)
 
+    objects = UserManager()
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
@@ -55,12 +71,45 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 # Agent Profile, agents are responsible for managing drivers in specific locations and providing support
+class AgentStatus(models.TextChoices):
+    INVITED = "invited", "Invited"
+    PENDING_KYC = "pending_kyc", "Pending KYC"
+    PENDING_APPROVAL = "pending_approval", "Pending Approval"
+    APPROVED = "approved", "Approved"
+    REJECTED = "rejected", "Rejected"
+
 class AgentProfile(models.Model):
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="agent_profile")
 
-    location = models.CharField(max_length=100)
-    is_active = models.BooleanField(default=True)
+    full_name = models.CharField(max_length=255, null=True, blank=True)
+    area = models.CharField(max_length=100, null=True, blank=True)
+    lga = models.CharField(max_length=100, null=True, blank=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=AgentStatus.choices,
+        default=AgentStatus.INVITED,
+        db_index=True
+    )
+
+    invited_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invited_agents"
+    )
+
+    nin_document = CloudinaryField(
+        "agent_nin",
+        folder="agent_documents/",
+        resource_type="auto",
+        type="private",
+        null=True,
+        blank=True
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -70,8 +119,10 @@ class AgentProfile(models.Model):
     """
     class Meta:
         indexes = [
-            models.Index(fields=["is_active"]),
+            models.Index(fields=["status"])
         ]
+    def __str__(self):
+        return f"Agent: {self.user.email} | {self.status}"
 
 
 # Driver Profile
@@ -181,6 +232,9 @@ class AdminProfile(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return super().__str__() + f" | Admin Level: {self.level}"
+
 
 
 # Driver Document model for storing driver identification documents
@@ -231,6 +285,12 @@ class DriverDocument(models.Model):
 
     verified = models.BooleanField(default=False)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["verified"]),
+        ]
 
     def get_signed_url(self, expires_in=600): 
 

@@ -9,17 +9,25 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+
     env:
-      SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }} 
+      SECRET_KEY: ${{ secrets.DJANGO_SECRET_KEY }}
+      FRONTEND_DOMAIN: http://localhost:3000
+      
+      # Cloudinary — dummy values are fine since uploads are mocked in tests
+      CLOUDINARY_CLOUD_NAME: test
+      CLOUDINARY_API_KEY: test
+      CLOUDINARY_API_SECRET: test
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.11
+          python-version: "3.11"
+          cache: pip
 
       - name: Install dependencies
         run: |
@@ -27,16 +35,16 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run tests with coverage
-        run: |
-          pytest ticket/test_ticket.py --cov=ticket --cov-report=xml --cov-report=html --cov-report=term-missing 
-                                                                                                                  
-      - name: Upload coverage report artifact
+        # pytest.ini already sets --cov=. and all --cov-report flags via addopts
+        run: pytest -v
+
+      - name: Upload HTML coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: htmlcov
 
-      - name: Upload coverage xml artifact
+      - name: Upload XML coverage report
         uses: actions/upload-artifact@v4
         with:
           name: coverage-xml

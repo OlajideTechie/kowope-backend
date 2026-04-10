@@ -9,6 +9,8 @@ from .views import (
    ResendOTPView,
    ResetPinView,
    DriverProfileView,
+   AdminLoginView,
+   AgentLoginView,
 )
 
 app_name = 'authentication'
@@ -25,4 +27,6 @@ urlpatterns = [
    path('driver/resend-otp', ResendOTPView.as_view(), name='resend-otp'),
    path('driver/me', DriverProfileView.as_view(), name='driver-profile'),
 
+   path('admin/login', AdminLoginView.as_view(), name='admin-login'),
+   path('agent/login', AgentLoginView.as_view(), name='agent-login'),
 ]

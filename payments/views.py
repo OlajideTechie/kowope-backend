@@ -20,6 +20,8 @@ from rest_framework import status, permissions
 from ticket.utils import expire_old_tickets_once_per_day
 from django.conf import settings
 
+from middleware.permissions import IsDriver
+
 import json
 
 import logging
@@ -29,7 +31,7 @@ logger = logging.getLogger(__name__)
 @extend_schema(tags=["Payments"],)
 class InitializePaymentView(APIView):
     serializer_class = PaymentInitializeSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsDriver]
 
     PAYMENT_CUTOFF = time(22, 0)  # 10 PM
     PENDING_EXPIRY = timedelta(minutes=settings.PENDING_TICKET_EXPIRY_MINUTES)
@@ -124,7 +126,7 @@ class InitializePaymentView(APIView):
     exclude=True, 
     description="Verify a payment with Paystack"
     )
-class verify_payment_view(APIView):
+class VerifyPaymentView(APIView):
 
   def get(self, request, reference):
 
