@@ -37,6 +37,8 @@ urlpatterns = [
     path('api/v1/payment/', include('payments.urls', namespace='payments')),
 
     path('api/v1/ticket/', include('ticket.urls', namespace='ticket')),
+
+    path('api/v1/agents/', include('agents.urls', namespace='agents')),
 ]
 
 # Serve media files in development

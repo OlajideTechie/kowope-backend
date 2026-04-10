@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import status
+from middleware.permissions import IsAgent, IsDriver
 
 from .models import Ticket
 from .serializers import TicketSerializer, TicketQRValidationSerializer
@@ -13,7 +14,7 @@ from drf_spectacular.utils import extend_schema
 
 @extend_schema(tags=["Agent"],)
 class ValidateTicketAPIView(APIView):
-    permission_classes = []  # To Add IsAuthenticated later
+    permission_classes = [IsAgent]
     serializer_class = TicketQRValidationSerializer
 
     def get(self, request):
@@ -49,7 +50,7 @@ class ValidateTicketAPIView(APIView):
 @extend_schema(tags=["Tickets"],)
 class TicketDashboardView(APIView):
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsDriver]
 
     def get(self, request):
         driver = request.user.driver_profile

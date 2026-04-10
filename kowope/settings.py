@@ -62,6 +62,7 @@ INSTALLED_APPS = [
     'authentication',
     'payments',
     'ticket',
+    'agents',
 ]
 
 MIDDLEWARE = [
@@ -349,6 +350,20 @@ OTP_EXPIRY_SECONDS = 300  # 5 minutes
 ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
 SMS_PROVIDER = "twilio"
 
+# Email provider toggle
+# When False, emails are printed to the console/logs instead of being sent
+ENABLE_EMAIL_PROVIDER = os.getenv("ENABLE_EMAIL_PROVIDER", "False") == "True"
+
+if ENABLE_EMAIL_PROVIDER:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    EMAIL_PORT = int(os.getenv("EMAIL_PORT", 587))
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+    EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
 # TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
 # TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
 # TWILIO_VERIFY_SERVICE_SID = os.getenv("TWILIO_VERIFY_SERVICE_SID")
@@ -378,3 +393,7 @@ TICKET_AMOUNT = 500
 PAYSTACK_REDIRECT_URL = os.getenv("PAYSTACK_REDIRECT_URL", "http://127.0.0.1:8000/api/v1/payment/callback")
 
 RETURN_OTP_IN_RESPONSE = os.getenv("RETURN_OTP_IN_RESPONSE", "False") == "True"
+
+RETURN_INVITE_LINK = os.getenv("RETURN_INVITE_LINK", "False") == "True"
+
+DEFAULT_FROM_EMAIL = "no-reply@kowope.com"

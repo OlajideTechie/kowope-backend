@@ -50,7 +50,7 @@ class Ticket(models.Model):
     # Dynamically check if ticket is expired
     @property
     def is_expired(self):
-        return timezone.now().localdate() > self.valid_for_date
+        return timezone.localdate() > self.valid_for_date
     
     @property
     def is_active(self):
@@ -90,7 +90,7 @@ class Ticket(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.qr_code:
-            self.generate_qr_token()
+            self.generate_qr_code()
         super().save(*args, **kwargs)
 
 
@@ -102,21 +102,20 @@ class Ticket(models.Model):
             models.Index(fields=["status"]),
         ]
 
-# constraints
-    constraints = [
-        # One ticket per payment
-        models.UniqueConstraint(
-            fields=["payment"],
-            name="unique_ticket_per_payment"
-        ),
-        
-         # One active ticket per driver per day per area
-       models.UniqueConstraint(
+        constraints = [
+            # One ticket per payment
+            models.UniqueConstraint(
+                fields=["payment"],
+                name="unique_ticket_per_payment"
+            ),
+
+            # One active ticket per driver per day per area
+            models.UniqueConstraint(
                 fields=["driver", "valid_for_date", "area"],
                 condition=models.Q(status="ACTIVE"),
                 name="unique_active_ticket_per_driver_per_day_area"
             )
-    ]   
+        ]
 
     def __str__(self):
         return self.ticket_number
