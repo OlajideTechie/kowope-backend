@@ -102,7 +102,6 @@ class Ticket(models.Model):
         indexes = [
             models.Index(fields=["ticket_number"]),
             models.Index(fields=["driver"]),
-            models.Index(fields=["area"]),
             models.Index(fields=["status"]),
         ]
 
