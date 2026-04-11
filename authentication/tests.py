@@ -6,6 +6,7 @@ from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 from services.otp_service import OTPService
 from authentication.models import AdminProfile, AgentProfile, DriverProfile
+from common.models import Area
 
 User = get_user_model()
 
@@ -29,7 +30,13 @@ def api_client():
 
 
 @pytest.fixture
-def create_user():
+def lagos_area(db):
+    """Creates a reusable Area instance for tests."""
+    return Area.objects.create(name="Ikeja", state="Lagos")
+
+
+@pytest.fixture
+def create_user(lagos_area):
     """
     Creates a User + DriverProfile directly (bypasses the API).
     phone_number is stored raw (11 digits) on User so login/OTP lookups work.
@@ -45,7 +52,7 @@ def create_user():
         driver = DriverProfile.objects.create(
             user=user,
             full_name="Test Driver",
-            area="Lagos",
+            area=lagos_area,
             lga="Ikeja",
             phone_number=phone_number,
             license_number="ABCDE12",
@@ -76,14 +83,14 @@ def generate_otp():
         ("08039876543", "Another User", "3579"),
     ],
 )
-def test_signup(api_client, phone_number, full_name, pin):
+def test_signup(api_client, lagos_area, phone_number, full_name, pin):
     doc = SimpleUploadedFile("doc.jpg", b"fake content", content_type="image/jpeg")
     data = {
         "phone_number": phone_number,
         "full_name": full_name,
         "pin": pin,
         "confirm_pin": pin,
-        "area": "Lagos",
+        "area": str(lagos_area.id),
         "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
@@ -96,7 +103,7 @@ def test_signup(api_client, phone_number, full_name, pin):
 
 
 @pytest.mark.django_db
-def test_signup_existing_phone(api_client, create_user):
+def test_signup_existing_phone(api_client, lagos_area, create_user):
     create_user(phone_number="08031234567")
     doc = SimpleUploadedFile("doc.jpg", b"fake content", content_type="image/jpeg")
     data = {
@@ -104,7 +111,7 @@ def test_signup_existing_phone(api_client, create_user):
         "full_name": "Test User",
         "pin": "2468",
         "confirm_pin": "2468",
-        "area": "Lagos",
+        "area": str(lagos_area.id),
         "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
@@ -117,14 +124,14 @@ def test_signup_existing_phone(api_client, create_user):
 
 
 @pytest.mark.django_db
-def test_signup_weak_pin_rejected(api_client):
+def test_signup_weak_pin_rejected(api_client, lagos_area):
     doc = SimpleUploadedFile("doc.jpg", b"fake content", content_type="image/jpeg")
     data = {
         "phone_number": "08031234567",
         "full_name": "Test User",
         "pin": "1234",
         "confirm_pin": "1234",
-        "area": "Lagos",
+        "area": str(lagos_area.id),
         "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
@@ -136,14 +143,14 @@ def test_signup_weak_pin_rejected(api_client):
 
 
 @pytest.mark.django_db
-def test_signup_pin_mismatch_rejected(api_client):
+def test_signup_pin_mismatch_rejected(api_client, lagos_area):
     doc = SimpleUploadedFile("doc.jpg", b"fake content", content_type="image/jpeg")
     data = {
         "phone_number": "08031234567",
         "full_name": "Test User",
         "pin": "2468",
         "confirm_pin": "9999",
-        "area": "Lagos",
+        "area": str(lagos_area.id),
         "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
