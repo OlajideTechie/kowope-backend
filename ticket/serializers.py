@@ -28,6 +28,8 @@ class TicketSerializer(serializers.ModelSerializer):
 
     verification_url = serializers.SerializerMethodField()
 
+    area = serializers.CharField(source="area.name", read_only=True)
+
     class Meta:
         model = Ticket
         fields = [

@@ -2,14 +2,11 @@ from rest_framework import serializers
 from django.contrib.auth.hashers import make_password, check_password
 from django.contrib.auth import authenticate
 from .models import DriverDocument, User, DriverProfile, OTP
+from common.models import Area
 from drf_spectacular.utils import extend_schema_field
 from django.utils import timezone
-import os
-import time 
-import cloudinary.utils
 from utils.phone import normalize_phone
-
-MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB in bytes 
+from services.document_verification_service import DocumentVerificationService
 
 WEAK_PINS = ['1234', '0000', '1111', '2222', '3333', 
              '4444', '5555', '6666', '7777', '8888', '9999']
@@ -25,7 +22,7 @@ class DriverSignupSerializer(serializers.Serializer):
     full_name = serializers.CharField(required=True)
     phone_number = serializers.CharField(required=True)
 
-    area = serializers.CharField(required=True)
+    area = serializers.UUIDField(required=True, help_text="UUID of the area from /api/v1/areas/")
     lga = serializers.CharField(required=True)
 
     license_number = serializers.CharField(required=True)
@@ -66,6 +63,11 @@ class DriverSignupSerializer(serializers.Serializer):
         
         if not data.get("area"):
             raise serializers.ValidationError("Area is required")
+
+        try:
+            data["area"] = Area.objects.get(id=data["area"])
+        except Area.DoesNotExist:
+            raise serializers.ValidationError("Invalid area selected. Choose from /api/v1/areas/")
         
         if not data.get("phone_number"):
             raise serializers.ValidationError("Phone number is required")
@@ -113,27 +115,8 @@ class DriverSignupSerializer(serializers.Serializer):
             raise serializers.ValidationError("Phone number must be 11 digits long")
         return value
     
-    """ Additional validation for document file type and size """
     def validate_document_file(self, file):
-        allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
-        ext = os.path.splitext(file.name)[1].lower()
-
-        if ext not in allowed_extensions:
-            raise serializers.ValidationError("Only PDF, JPG, JPEG, or PNG files are allowed.")
-
-        blocked_mime_types = [
-            'text/plain',
-            'text/csv',
-            'application/vnd.ms-excel',
-        ]
-
-        if file.content_type in blocked_mime_types:
-            raise serializers.ValidationError("Unsupported file type. Allowed types: PDF, JPG, JPEG, PNG")
-
-        if file.size > MAX_FILE_SIZE:  # Limit file size to 5MB
-            raise serializers.ValidationError("Document file size should not exceed 5MB")
-        
-        return file
+        return DocumentVerificationService.validate_file(file)
     
     # Additional validation for pin strength and matching
     def validate_empty_values(self, data):
@@ -382,8 +365,8 @@ class DriverDocumentSerializer(serializers.ModelSerializer):
         
         if obj.driver.user != user and not is_admin:
             return None
-        
-        return obj.get_signed_url()
+
+        return DocumentVerificationService.get_signed_url(obj.document_file)
 
 
 class DriverProfileSerializer(serializers.ModelSerializer):
@@ -394,19 +377,20 @@ class DriverProfileSerializer(serializers.ModelSerializer):
     verified = serializers.BooleanField(source="user.verified", read_only=True)
     created_at = serializers.DateTimeField(source="user.created_at", read_only=True)
     documents = DriverDocumentSerializer(source="document", read_only=True)
+    area = serializers.CharField(source="area.name", read_only=True)
 
     class Meta:
         model = DriverProfile
         fields = [
-            'id', 
-            'full_name', 
-            'phone_number', 
+            'id',
+            'full_name',
+            'phone_number',
             'role',
             'area',
             'lga',
-            'license_number', 
-            'is_phone_verified', 
-            'verified', 
+            'license_number',
+            'is_phone_verified',
+            'verified',
             'documents',
             'created_at',
             ]        

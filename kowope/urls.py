@@ -38,7 +38,9 @@ urlpatterns = [
 
     path('api/v1/ticket/', include('ticket.urls', namespace='ticket')),
 
-    path('api/v1/agents/', include('agents.urls', namespace='agents')),
+    path('api/v1/', include('agents.urls', namespace='agents')),
+
+    path('api/v1/', include('common.urls', namespace='common')),
 ]
 
 # Serve media files in development
