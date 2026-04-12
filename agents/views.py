@@ -64,7 +64,7 @@ class InviteAgentView(APIView):
     
 
 @extend_schema(
-    request=AgentApprovalSerializer,
+    request=CompleteRegistrationSerializer,
     tags=["Agent"]
         )
 class CompleteRegistrationView(APIView):
@@ -96,6 +96,8 @@ class CompleteRegistrationView(APIView):
 class AgentApprovalView(APIView):
     serializer_class = AgentApprovalSerializer
     permission_classes = [IsAdmin]
+
+    parser_classes = [MultiPartParser, FormParser]
 
     def patch(self, request, agent_id):
         serializer = AgentApprovalSerializer(data=request.data)
