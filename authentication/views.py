@@ -23,7 +23,8 @@ from datetime import datetime
 
 from drf_spectacular import openapi
 
-from authentication.models import DriverDocument, User
+from authentication.models import User
+from services.document_verification_service import DocumentVerificationService
 from authentication.serializers import (
     DriverSignupSerializer,
     DriverLoginSerializer,
@@ -96,10 +97,10 @@ class DriverSignupView(generics.CreateAPIView):
 
             driver_profile.set_pin(data["pin"])
 
-            DriverDocument.objects.create(
-                driver=driver_profile,
+            DocumentVerificationService.create_driver_document(
+                driver_profile=driver_profile,
                 document_type=data["document_type"],
-                document_file=data["document_file"]
+                file=data["document_file"],
             )
 
         self.user = user  # Store the created user for use in the response
@@ -121,7 +122,7 @@ class DriverSignupView(generics.CreateAPIView):
             "success": True,
             'user': UserSerializer(self.user).data,
             'full_name': self.user.driver_profile.full_name,
-            'area': self.user.driver_profile.area,
+            'area': self.user.driver_profile.area.name,
             'lga': self.user.driver_profile.lga,
             'license_number': self.user.driver_profile.license_number,
             'verified': self.user.driver_profile.verified,

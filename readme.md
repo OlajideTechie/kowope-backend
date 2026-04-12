@@ -1,7 +1,7 @@
-## 📜 License References
+# Kowope Backend
 
-![Python](https://img.shields.io/badge/Python-3.10-blue)
-![Django](https://img.shields.io/badge/Django-5.0-darkgreen)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![Django](https://img.shields.io/badge/Django-5.2-darkgreen)
 ![DRF](https://img.shields.io/badge/DRF-REST--Framework-green)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791)
 ![JWT](https://img.shields.io/badge/JWT-Authentication-orange)
@@ -9,148 +9,162 @@
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 ![Status](https://img.shields.io/badge/Status-Active-success)
 
-# Overview
-
-Kówópé is a driver ticketing system designed to simplify daily road-use payments for commercial drivers.
-
-The goal is to reduce harassment, eliminate cash handling, and provide drivers with a simple, verifiable proof of payment using only a phone number.
+Kowope is a driver ticketing system designed to simplify daily road-use payments for commercial drivers. It reduces cash handling, eliminates harassment, and gives drivers a verifiable proof of payment using only a phone number.
 
 ---
 
 ## Problem
-Commercial drivers face daily harassment and inefficiencies due to manual ticketing and fragmented fee collection.
 
-- Cash collections
-- Multiple collectors
-- No transparency
-- No proof of payment
-
-This creates inefficiency, conflict, and lost revenue.
+Commercial drivers face daily harassment and inefficiencies due to manual ticketing and fragmented fee collection — cash collections, multiple collectors, no transparency, and no proof of payment.
 
 ---
 
-## 💡 Solution
+## Solution
 
-Kówópé enables drivers to:
-- Register with a phone number
-- Generate a daily ticket after payment
-- Receive a ticket reference via SMS
-- Use that reference as proof of payment
+**Drivers** can:
+- Register with a phone number and complete OTP verification
+- Purchase a daily ticket via Paystack
+- Receive a ticket reference as proof of payment
 
-Admins can:
-- Manage drivers
-- Configure fees
-- View tickets and payments
+**Agents** can:
+- Be invited by admins and onboarded with KYC
+- Manage and verify drivers in their assigned area
+
+**Admins** can:
+- Invite and manage agents
+- Approve or reject driver and agent documents
+- View tickets, payments, and driver reports
+- Deactivate agents or drivers
 
 ---
-
-## Core Features
-Kówópé provides a mobile-first web platform for:
-- Driver onboarding
-- Daily ticket generation
-- Transparent fee handling
-
-## MVP Scope
-- Web-based driver access (mobile friendly)
-- Payment processing logic 
-- Agent-assisted ticket generation
-- Daily ticket issuance via phone number
 
 ## Tech Stack
-- **Backend**: Django + Django REST Framework
-- **Database**: PostgreSQL (SQLite for local dev)
-- **Auth**: Phone number + OTP
-- **Notifications**: SMS (mocked in MVP)
-- **Deployment**: Render
 
-## Authentication
-- Phone number based login
-- One-time PIN (OTP) for verification
-- Session-based access (MVP)
+| Layer | Technology |
+|---|---|
+| Backend | Django 5.2 + Django REST Framework |
+| Database | PostgreSQL (production), SQLite (local dev) |
+| Auth | Phone + OTP (drivers), Email + Password + JWT (admin/agent) |
+| Payments | Paystack |
+| File Storage | Cloudinary |
+| SMS | Twilio (toggleable) |
+| Deployment | Render |
+| Docs | drf-spectacular (Swagger) |
 
-## Folder Structure
+---
+
+## Project Structure
 
 ```
 kowope-backend/
-│
-├── manage.py
-├── README.md
-├── requirements.txt
-├── .env.example
-│
-├── config/
-│   ├── __init__.py
-│   ├── settings.py
-│   ├── urls.py
-│   ├── asgi.py
-│   └── wsgi.py
-│
-├── apps/
-│   ├── drivers/
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   └── tests.py
-│   │
-│   ├── tickets/
-│   │   ├── models.py
-│   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
-│   │   └── tests.py
-│   │
-│   ├── fees/
-│   │   ├── models.py
-│   │   ├── views.py
-│   │   └── tests.py
-│   │
-│   └── admins/
-│       ├── views.py
-│       └── permissions.py
-│
-├── common/
-│   ├── utils.py
-│   ├── sms.py   
-│   └── permissions.py
-│
-├── docs/
-│   ├── erd.md
-│   ├── auth-flow.md
-│   └── api-contracts.md
-│
-└── tests/
-    └── test_health.py
+├── authentication/        # User, DriverProfile, AgentProfile, AdminProfile models + auth views
+│   └── management/
+│       └── commands/
+│           ├── create_admin.py   # Create admin via CLI
+│           └── seed_admin.py     # Auto-seed admin on deploy (reads from env vars)
+├── agents/                # Agent invite flow
+├── payments/              # Paystack payment integration
+├── ticket/                # Daily ticket issuance and verification
+├── middleware/            # Custom permission classes (IsAdmin, IsAgent, IsDriver)
+├── services/              # Business logic (OTP, SMS, invite agent, Paystack)
+├── utils/                 # Phone normalization, payment helpers
+├── kowope/                # Django settings and root URLs
+├── conftest.py            # Pytest fixtures (throttle disabling, shared setup)
+└── manage.py
 ```
 
+---
+
+## API Endpoints
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/auth/driver/signup` | Public | Driver registration |
+| POST | `/api/v1/auth/driver/login` | Public | Driver login (phone + PIN) |
+| POST | `/api/v1/auth/driver/verify-otp` | Public | OTP phone verification |
+| POST | `/api/v1/auth/driver/resend-otp` | Public | Resend OTP |
+| POST | `/api/v1/auth/driver/reset-pin` | Public | Reset driver PIN |
+| POST | `/api/v1/auth/driver/logout` | Driver | Logout |
+| GET  | `/api/v1/auth/driver/me` | Driver | Driver profile |
+| POST | `/api/v1/auth/admin/login` | Public | Admin login |
+| POST | `/api/v1/auth/agent/login` | Public | Agent login |
+| POST | `/api/v1/agents/invite-agent` | Admin | Invite a new agent |
+| POST | `/api/v1/payment/` | Driver | Initiate ticket payment |
+| GET  | `/api/v1/ticket/` | Driver | View tickets |
+
+Full interactive docs at `/` or `/api/docs/` after running locally.
+
+---
 
 ## Local Setup
 
 ```bash
-# Clone the repository locally
+# Clone the repo
 git clone <repo-url>
-cd kowope
+cd kowope-backend
 
-
-# Set up virtual environment
+# Create and activate virtual environment
 python -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  
-
-# or 
-env\Scripts\activate on Windows
+source venv/bin/activate        # macOS/Linux
+venv\Scripts\activate           # Windows
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Run migration
+# Copy and fill in environment variables
+cp .env.example .env
+
+# Run migrations
 python manage.py migrate
+
+# Create an admin user for local testing
+python manage.py create_admin --email admin@kowope.com --password yourpassword
 
 # Start the server
 python manage.py runserver
 ```
 
-### Access Swagger docs at
+Swagger docs: `http://127.0.0.1:8000/`
 
-```http://127.0.0.1:8000/swagger/```
+---
+
+## Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SECRET_KEY` | Django secret key |
+| `DEBUG` | `True` for local, `False` for production |
+| `DATABASE_URL` | PostgreSQL URL (leave unset to use SQLite locally) |
+| `ALLOWED_HOSTS` | Comma-separated list of allowed hosts |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary config |
+| `CLOUDINARY_API_KEY` | Cloudinary config |
+| `CLOUDINARY_API_SECRET` | Cloudinary config |
+| `ENABLE_SMS_PROVIDER` | `True` to send real SMS via Twilio |
+| `ENABLE_EMAIL_PROVIDER` | `True` to send real emails via SMTP |
+| `RETURN_OTP_IN_RESPONSE` | `True` to expose OTP in response (staging only) |
+| `RETURN_INVITE_LINK` | `True` to expose invite URL in response (staging only) |
+| `FRONTEND_DOMAIN` | Base URL used to build agent invite links |
+| `ADMIN_EMAIL` | Seed admin email (used by `seed_admin` on Render deploy) |
+| `ADMIN_PASSWORD` | Seed admin password (used by `seed_admin` on Render deploy) |
+
+---
+
+## Running Tests
+
+```bash
+pytest
+```
+
+Coverage report is generated in `htmlcov/` and `coverage.xml`.
+
+---
+
+## Deployment (Render)
+
+Set all env vars in Render → Environment, then set the pre-deploy command:
+
+```bash
+python manage.py migrate && python manage.py seed_admin
+```
+
+`seed_admin` is idempotent — it creates the super admin on first deploy and skips silently on all subsequent ones.

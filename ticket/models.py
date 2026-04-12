@@ -26,7 +26,11 @@ class Ticket(models.Model):
         related_name="driver_tickets"
     )
 
-    area = models.CharField(max_length=100)
+    area = models.ForeignKey(
+        "common.Area",
+        on_delete=models.CASCADE,
+        related_name="tickets",
+    )
 
     ticket_number = models.CharField(max_length=50, unique=True)
 
@@ -98,7 +102,6 @@ class Ticket(models.Model):
         indexes = [
             models.Index(fields=["ticket_number"]),
             models.Index(fields=["driver"]),
-            models.Index(fields=["area"]),
             models.Index(fields=["status"]),
         ]
 

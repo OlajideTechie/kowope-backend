@@ -29,7 +29,8 @@ class InviteAgentService:
         agent = AgentProfile.objects.create(
             user=user,
             status="invited",
-            invited_by=invited_by
+            invited_by=invited_by,
+            invite_token_used=False
         )
 
         # 3. Generate Invite Token (expires in 24hrs)

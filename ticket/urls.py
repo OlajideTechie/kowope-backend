@@ -5,7 +5,7 @@ from .views import TicketDashboardView, ValidateTicketAPIView
 app_name = 'tickets'
 
 urlpatterns = [
-    path("validate", ValidateTicketAPIView.as_view(), name="validate-ticket"),
+    path("agents/validate", ValidateTicketAPIView.as_view(), name="validate-ticket"),
     path("all", TicketDashboardView.as_view(), name="ticket-dashboard"),
 
 ]

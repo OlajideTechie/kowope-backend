@@ -10,40 +10,41 @@ from middleware.permissions import IsAgent, IsDriver
 from .models import Ticket
 from .serializers import TicketSerializer, TicketQRValidationSerializer
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter
 
-@extend_schema(tags=["Agent"],)
+@extend_schema(tags=["Agent"],
+               parameters=[
+              OpenApiParameter(name="qr_code", type=str, location=OpenApiParameter.QUERY, required=True),
+               ])
 class ValidateTicketAPIView(APIView):
     permission_classes = [IsAgent]
-    serializer_class = TicketQRValidationSerializer
-
     def get(self, request):
-        qr_code = request.query_params.get("qr_code")
-        
         serializer = TicketQRValidationSerializer(data=request.query_params)
 
-        if not qr_code:
+        if not serializer.is_valid():
+            return Response({
+                "valid": False,
+                "error": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket = serializer.validated_data["ticket"]
+
+        # Agents can only validate tickets for drivers in their assigned area
+        agent_profile = request.user.agent_profile
+        if agent_profile.area_id != ticket.area_id:
             return Response(
-                {"valid": False, "error": "Missing qr_code parameter"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"valid": False, "error": "You are not authorized to validate tickets for this area"},
+                status=status.HTTP_403_FORBIDDEN
             )
 
-        if serializer.is_valid():
-            ticket = serializer.validated_data["ticket"]
-
-            return Response({
-                "valid": True,
-                "ticket_number": ticket.ticket_number,
-                "driver_name": ticket.driver.full_name,
-                "area": ticket.area,
-                "valid_for_date": ticket.valid_for_date,
-                "status": ticket.computed_status,
-            })
-
         return Response({
-            "valid": False,
-            "error": serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
+            "valid": True,
+            "ticket_number": ticket.ticket_number,
+            "driver_name": ticket.driver.full_name,
+            "area": ticket.area.name,
+            "valid_for_date": ticket.valid_for_date,
+            "status": ticket.computed_status,
+        })
 
 
 

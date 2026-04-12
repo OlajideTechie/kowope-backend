@@ -7,6 +7,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from authentication.models import DriverProfile, User
+from common.models import Area
 from payments.models import Payment
 from ticket.models import Ticket
 from utils.task import generate_ticket
@@ -25,6 +26,8 @@ def test_full_payment_ticket_expire_flow():
     # --------------------------
     # Step 0: Create Driver
     # --------------------------
+    area = Area.objects.create(name="Ikeja", state="Lagos")
+
     user = User.objects.create(
         password="password123"
     )
@@ -32,7 +35,7 @@ def test_full_payment_ticket_expire_flow():
     driver = DriverProfile.objects.create(
         user=user,
         full_name="Test Driver",
-        area="Lagos",
+        area=area,
         lga="Ikeja",
         phone_number=f"080{uuid.uuid4().int % 100000000:08d}",  # unique
         license_number=str(uuid.uuid4())[:12],

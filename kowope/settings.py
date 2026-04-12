@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'cloudinary_storage',
 
     # Local apps
+    'common',
     'authentication',
     'payments',
     'ticket',

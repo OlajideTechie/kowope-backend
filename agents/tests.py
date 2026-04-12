@@ -4,10 +4,11 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 from authentication.models import AdminProfile, AgentProfile
+from common.models import Area
 
 User = get_user_model()
 
-INVITE_URL = "/api/v1/agents/invite-agent"
+INVITE_URL = "/api/v1/invite-agent"
 
 
 # ---------------------------------------------------------------------------

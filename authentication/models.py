@@ -1,14 +1,10 @@
-from fileinput import filename
-import cloudinary
 from django.db import models
 import uuid
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
-import time
 from utils.phone import normalize_phone
 from cloudinary.models import CloudinaryField
-import cloudinary.utils
 
 
 class UserManager(BaseUserManager):
@@ -73,6 +69,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 # Agent Profile, agents are responsible for managing drivers in specific locations and providing support
 class AgentStatus(models.TextChoices):
     INVITED = "invited", "Invited"
+
     PENDING_KYC = "pending_kyc", "Pending KYC"
     PENDING_APPROVAL = "pending_approval", "Pending Approval"
     APPROVED = "approved", "Approved"
@@ -84,7 +81,15 @@ class AgentProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="agent_profile")
 
     full_name = models.CharField(max_length=255, null=True, blank=True)
-    area = models.CharField(max_length=100, null=True, blank=True)
+
+    area = models.ForeignKey(
+        "common.Area",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="agents",
+    )
+
     lga = models.CharField(max_length=100, null=True, blank=True)
 
     status = models.CharField(
@@ -101,6 +106,8 @@ class AgentProfile(models.Model):
         blank=True,
         related_name="invited_agents"
     )
+
+    invite_token_used = models.BooleanField(default=False)
 
     nin_document = CloudinaryField(
         "agent_nin",
@@ -140,7 +147,13 @@ class DriverProfile(models.Model):
 
     full_name = models.CharField(max_length=50)
 
-    area = models.CharField(max_length=50)
+    area = models.ForeignKey(
+        "common.Area",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="drivers"
+    )
+    
     lga = models.CharField(max_length=50)
 
     phone_number = models.CharField(unique=True, max_length=15, db_index=True)
@@ -292,17 +305,9 @@ class DriverDocument(models.Model):
             models.Index(fields=["verified"]),
         ]
 
-    def get_signed_url(self, expires_in=600): 
+    def get_signed_url(self, expires_in=600):
+        from services.document_verification_service import DocumentVerificationService
 
-        if not self.document_file:
-            return None 
-         
-        url, _ = cloudinary.utils.cloudinary_url(
-            self.document_file.public_id, 
-            resource_type="auto", 
-            type="private", 
-            sign_url=True,
-            expires_at=int((time.time()) + expires_in # URL expires in 10 minutes
-            )
+        return DocumentVerificationService.get_signed_url(
+            self.document_file, expires_in=expires_in
         )
-        return url
