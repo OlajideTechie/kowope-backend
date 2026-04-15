@@ -3,22 +3,24 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.utils import timezone
+from datetime import date as date_type
 
 from services.complete_registration_service import CompleteRegistrationService
 from .serializers import (
     InviteAgentSerializer, CompleteRegistrationSerializer,
-    AgentApprovalSerializer,
-
+    AgentApprovalSerializer, AgentDashboardSerializer,
 )
-from middleware.permissions import IsAdmin
+from middleware.permissions import IsAdmin, IsAgent
 from services.invite_agent_service import InviteAgentService
 from django.conf import settings
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import OpenApiResponse, OpenApiParameter
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions as permission_classes
 from rest_framework.parsers import MultiPartParser, FormParser
 from services.agent_approval_service import AgentApprovalService
 from authentication.models import AgentProfile
+from ticket.models import Ticket
 
 
 @extend_schema(
@@ -123,6 +125,69 @@ class AgentApprovalView(APIView):
             "message": result["message"],
             "agent_status": agent.status
         }, status=status.HTTP_200_OK)
-    
+
+
+@extend_schema(
+    tags=["Agent"],
+    parameters=[
+        OpenApiParameter(
+            name="date",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            description="Date to filter by (YYYY-MM-DD). Defaults to today.",
+            required=False,
+        )
+    ],
+    responses={
+        200: OpenApiResponse(description="Agent dashboard data"),
+        400: OpenApiResponse(description="Invalid date format"),
+    },
+)
+class AgentDashboardView(APIView):
+    permission_classes = [IsAgent]
+
+    def get(self, request):
+        agent = request.user.agent_profile
+
+        # Parse optional date query param, default to today
+        raw_date = request.query_params.get("date")
+        if raw_date:
+            try:
+                query_date = date_type.fromisoformat(raw_date)
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            query_date = timezone.localdate()
+
+        total_active_in_area = 0
+        if agent.area:
+            total_active_in_area = Ticket.objects.filter(
+                area=agent.area,
+                valid_for_date=query_date,
+                status=Ticket.Status.ACTIVE,
+            ).count()
+
+        validated_tickets = (
+            Ticket.objects
+            .select_related("driver", "area")
+            .filter(validated_by=agent, valid_for_date=query_date)
+            .order_by("-validated_at")
+        )
+
+        payload = {
+            "agent": agent,
+            "summary": {
+                "date": query_date,
+                "total_active_in_area": total_active_in_area,
+                "total_validated_by_me": validated_tickets.count(),
+            },
+            "validated_tickets": validated_tickets,
+        }
+
+        serializer = AgentDashboardSerializer(payload)
+        return Response(serializer.data)
 
 
