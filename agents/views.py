@@ -4,7 +4,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
-from datetime import date as date_type
+from datetime import date as date_type, timedelta
+from django.db.models import Sum, Count, F
+from django.db.models.functions import TruncWeek
+from decimal import Decimal
 
 from services.complete_registration_service import CompleteRegistrationService
 from .serializers import (
@@ -190,4 +193,225 @@ class AgentDashboardView(APIView):
         serializer = AgentDashboardSerializer(payload)
         return Response(serializer.data)
 
+
+# ---------------------------------------------------------------------------
+# Admin Dashboard Summary
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    tags=["Admin"],
+    responses={200: OpenApiResponse(description="Platform summary for today")},
+)
+class AdminDashboardView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from authentication.models import DriverProfile
+        from common.models import Area
+        from payments.models import Payment
+
+        today = timezone.localdate()
+
+        # Today's numbers
+        tickets_today = Ticket.objects.filter(valid_for_date=today)
+        tickets_issued = tickets_today.count()
+        validations_done = tickets_today.filter(validated_at__isnull=False).count()
+        total_revenue = (
+            Payment.objects
+            .filter(status=Payment.Status.SUCCESS, payment_date=today)
+            .aggregate(total=Sum("amount"))["total"] or Decimal("0.00")
+        )
+
+        # Pending actions
+        drivers_awaiting_verification = DriverProfile.objects.filter(verified=False).count()
+        agents_pending_approval = AgentProfile.objects.filter(
+            status="pending_approval"
+        ).count()
+        areas_without_agent = Area.objects.exclude(
+            agents__status="approved"
+        ).count()
+
+        # Per-area breakdown for today
+        area_breakdown = (
+            Ticket.objects
+            .filter(valid_for_date=today)
+            .values(area_name=F("area__name"), ticket_area_id=F("area__id"))
+            .annotate(
+                tickets_today=Count("id"),
+                revenue_today=Sum("payment__amount"),
+            )
+            .order_by("-tickets_today")
+        )
+
+        return Response({
+            "today": {
+                "tickets_issued": tickets_issued,
+                "total_revenue": str(total_revenue),
+                "active_drivers": tickets_issued,
+                "validations_done": validations_done,
+            },
+            "pending": {
+                "drivers_awaiting_verification": drivers_awaiting_verification,
+                "agents_pending_approval": agents_pending_approval,
+                "areas_without_agent": areas_without_agent,
+            },
+            "areas": [
+                {
+                    "area_id": str(row["ticket_area_id"]),
+                    "name": row["area_name"],
+                    "tickets_today": row["tickets_today"],
+                    "revenue_today": str(row["revenue_today"] or Decimal("0.00")),
+                }
+                for row in area_breakdown
+            ],
+        })
+
+
+# ---------------------------------------------------------------------------
+# Admin Revenue Breakdown
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    tags=["Admin"],
+    parameters=[
+        OpenApiParameter("period", str, OpenApiParameter.QUERY, description="daily or weekly", required=False),
+        OpenApiParameter("area", str, OpenApiParameter.QUERY, description="Area UUID", required=False),
+        OpenApiParameter("from", str, OpenApiParameter.QUERY, description="Start date YYYY-MM-DD", required=False),
+        OpenApiParameter("to", str, OpenApiParameter.QUERY, description="End date YYYY-MM-DD", required=False),
+    ],
+    responses={200: OpenApiResponse(description="Revenue breakdown")},
+)
+class AdminRevenueView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from payments.models import Payment
+
+        period = request.query_params.get("period", "daily")
+        if period not in ("daily", "weekly"):
+            return Response(
+                {"error": "period must be 'daily' or 'weekly'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        today = timezone.localdate()
+        default_from = today - timedelta(days=6 if period == "daily" else 27)
+
+        try:
+            from_date = date_type.fromisoformat(request.query_params.get("from", str(default_from)))
+            to_date = date_type.fromisoformat(request.query_params.get("to", str(today)))
+        except ValueError:
+            return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Payment.objects.filter(
+            status=Payment.Status.SUCCESS,
+            payment_date__range=(from_date, to_date),
+        )
+
+        area_filter = request.query_params.get("area")
+        if area_filter:
+            qs = qs.filter(driver__area__id=area_filter)
+
+        if period == "daily":
+            rows = (
+                qs.values(
+                    "payment_date",
+                    area_id=F("driver__area__id"),
+                    area_name=F("driver__area__name"),
+                )
+                .annotate(total_payments=Count("id"), total_revenue=Sum("amount"))
+                .order_by("payment_date", "area_name")
+            )
+            breakdown = [
+                {
+                    "date": str(row["payment_date"]),
+                    "area_id": str(row["area_id"]),
+                    "area": row["area_name"],
+                    "total_payments": row["total_payments"],
+                    "total_revenue": str(row["total_revenue"]),
+                }
+                for row in rows
+            ]
+        else:
+            rows = (
+                qs.annotate(week_start=TruncWeek("payment_date"))
+                .values(
+                    "week_start",
+                    area_id=F("driver__area__id"),
+                    area_name=F("driver__area__name"),
+                )
+                .annotate(total_payments=Count("id"), total_revenue=Sum("amount"))
+                .order_by("week_start", "area_name")
+            )
+            breakdown = [
+                {
+                    "week_start": str(row["week_start"].date() if hasattr(row["week_start"], "date") else row["week_start"]),
+                    "area_id": str(row["area_id"]),
+                    "area": row["area_name"],
+                    "total_payments": row["total_payments"],
+                    "total_revenue": str(row["total_revenue"]),
+                }
+                for row in rows
+            ]
+
+        totals = qs.aggregate(total_payments=Count("id"), total_revenue=Sum("amount"))
+
+        return Response({
+            "period": period,
+            "from": str(from_date),
+            "to": str(to_date),
+            "breakdown": breakdown,
+            "totals": {
+                "total_payments": totals["total_payments"] or 0,
+                "total_revenue": str(totals["total_revenue"] or Decimal("0.00")),
+            },
+        })
+
+
+# ---------------------------------------------------------------------------
+# Admin Driver List
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    tags=["Admin"],
+    parameters=[
+        OpenApiParameter("area", str, OpenApiParameter.QUERY, description="Area UUID", required=False),
+        OpenApiParameter("verified", str, OpenApiParameter.QUERY, description="true or false", required=False),
+    ],
+    responses={200: OpenApiResponse(description="Driver list")},
+)
+class AdminDriverListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        from authentication.models import DriverProfile
+
+        qs = DriverProfile.objects.select_related("user", "area").order_by("-user__created_at")
+
+        area_filter = request.query_params.get("area")
+        if area_filter:
+            qs = qs.filter(area__id=area_filter)
+
+        verified_filter = request.query_params.get("verified")
+        if verified_filter is not None:
+            if verified_filter.lower() == "true":
+                qs = qs.filter(verified=True)
+            elif verified_filter.lower() == "false":
+                qs = qs.filter(verified=False)
+
+        drivers = [
+            {
+                "id": str(d.id),
+                "full_name": d.full_name,
+                "phone_number": d.phone_number,
+                "license_number": d.license_number,
+                "area": d.area.name if d.area else None,
+                "area_id": str(d.area.id) if d.area else None,
+                "verified": d.verified,
+                "registered_at": d.user.created_at.isoformat(),
+            }
+            for d in qs
+        ]
+
+        return Response({"count": len(drivers), "drivers": drivers})
 

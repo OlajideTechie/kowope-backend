@@ -14,6 +14,9 @@ User = get_user_model()
 
 INVITE_URL = "/api/v1/invite-agent"
 DASHBOARD_URL = "/api/v1/agents/dashboard"
+ADMIN_DASHBOARD_URL = "/api/v1/admin/dashboard"
+ADMIN_REVENUE_URL = "/api/v1/admin/revenue"
+ADMIN_DRIVERS_URL = "/api/v1/admin/drivers"
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +85,7 @@ def driver(db, area):
         pin_hash="hashed",
         pin_set=True,
         is_phone_verified=True,
-        verified=True,
+        verified=False,
     )
 
 
@@ -336,3 +339,200 @@ def test_dashboard_non_agent_denied(api_client, driver_user):
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
     response = api_client.get(DASHBOARD_URL)
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Admin Dashboard Summary
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_dashboard_unauthenticated(api_client):
+    response = api_client.get(ADMIN_DASHBOARD_URL)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_non_admin_denied(api_client, driver_user):
+    refresh = RefreshToken.for_user(driver_user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
+    response = api_client.get(ADMIN_DASHBOARD_URL)
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_returns_expected_shape(auth_admin_client):
+    response = auth_admin_client.get(ADMIN_DASHBOARD_URL)
+    assert response.status_code == 200
+    data = response.json()
+    assert "today" in data
+    assert "pending" in data
+    assert "areas" in data
+    assert "tickets_issued" in data["today"]
+    assert "total_revenue" in data["today"]
+    assert "validations_done" in data["today"]
+    assert "drivers_awaiting_verification" in data["pending"]
+    assert "agents_pending_approval" in data["pending"]
+    assert "areas_without_agent" in data["pending"]
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_counts_todays_tickets(auth_admin_client, driver, area):
+    today = timezone.localdate()
+    payment = Payment.objects.create(
+        driver=driver,
+        reference=str(uuid.uuid4()),
+        amount=500,
+        currency="NGN",
+        status=Payment.Status.SUCCESS,
+        payment_date=today,
+    )
+    Ticket.objects.create(
+        payment=payment,
+        driver=driver,
+        area=area,
+        ticket_number=f"KWP-ADM-{uuid.uuid4().hex[:6].upper()}",
+        valid_for_date=today,
+        status=Ticket.Status.ACTIVE,
+    )
+    response = auth_admin_client.get(ADMIN_DASHBOARD_URL)
+    data = response.json()
+    assert data["today"]["tickets_issued"] >= 1
+    assert float(data["today"]["total_revenue"]) >= 500
+
+
+@pytest.mark.django_db
+def test_admin_dashboard_pending_verification_count(auth_admin_client, driver):
+    # driver fixture has verified=False by default
+    response = auth_admin_client.get(ADMIN_DASHBOARD_URL)
+    assert response.json()["pending"]["drivers_awaiting_verification"] >= 1
+
+
+# ---------------------------------------------------------------------------
+# Admin Revenue Breakdown
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_revenue_unauthenticated(api_client):
+    response = api_client.get(ADMIN_REVENUE_URL)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_revenue_returns_daily_by_default(auth_admin_client):
+    response = auth_admin_client.get(ADMIN_REVENUE_URL)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["period"] == "daily"
+    assert "breakdown" in data
+    assert "totals" in data
+    assert "from" in data
+    assert "to" in data
+
+
+@pytest.mark.django_db
+def test_admin_revenue_daily_includes_payment(auth_admin_client, driver):
+    today = timezone.localdate()
+    Payment.objects.create(
+        driver=driver,
+        reference=str(uuid.uuid4()),
+        amount=1000,
+        currency="NGN",
+        status=Payment.Status.SUCCESS,
+        payment_date=today,
+    )
+    response = auth_admin_client.get(ADMIN_REVENUE_URL, {"period": "daily"})
+    data = response.json()
+    assert int(data["totals"]["total_payments"]) >= 1
+    assert float(data["totals"]["total_revenue"]) >= 1000
+
+
+@pytest.mark.django_db
+def test_admin_revenue_weekly_period(auth_admin_client):
+    response = auth_admin_client.get(ADMIN_REVENUE_URL, {"period": "weekly"})
+    assert response.status_code == 200
+    assert response.json()["period"] == "weekly"
+
+
+@pytest.mark.django_db
+def test_admin_revenue_invalid_period(auth_admin_client):
+    response = auth_admin_client.get(ADMIN_REVENUE_URL, {"period": "monthly"})
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_admin_revenue_invalid_date(auth_admin_client):
+    response = auth_admin_client.get(ADMIN_REVENUE_URL, {"from": "bad-date"})
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_admin_revenue_area_filter(auth_admin_client, driver, area, other_area):
+    today = timezone.localdate()
+    Payment.objects.create(
+        driver=driver,
+        reference=str(uuid.uuid4()),
+        amount=1000,
+        currency="NGN",
+        status=Payment.Status.SUCCESS,
+        payment_date=today,
+    )
+    # Filter by other_area — should return zero payments
+    response = auth_admin_client.get(ADMIN_REVENUE_URL, {"area": str(other_area.id)})
+    assert response.status_code == 200
+    assert response.json()["totals"]["total_payments"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Admin Driver List
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_drivers_unauthenticated(api_client):
+    response = api_client.get(ADMIN_DRIVERS_URL)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_drivers_returns_list(auth_admin_client, driver):
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL)
+    assert response.status_code == 200
+    data = response.json()
+    assert "count" in data
+    assert "drivers" in data
+    assert data["count"] >= 1
+
+
+@pytest.mark.django_db
+def test_admin_drivers_verified_filter(auth_admin_client, driver):
+    # driver fixture has verified=False
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL, {"verified": "false"})
+    assert response.status_code == 200
+    assert response.json()["count"] >= 1
+
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL, {"verified": "true"})
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_admin_drivers_area_filter(auth_admin_client, driver, area, other_area):
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL, {"area": str(area.id)})
+    assert response.status_code == 200
+    assert response.json()["count"] >= 1
+
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL, {"area": str(other_area.id)})
+    assert response.status_code == 200
+    assert response.json()["count"] == 0
+
+
+@pytest.mark.django_db
+def test_admin_drivers_response_shape(auth_admin_client, driver):
+    response = auth_admin_client.get(ADMIN_DRIVERS_URL)
+    d = response.json()["drivers"][0]
+    assert "id" in d
+    assert "full_name" in d
+    assert "phone_number" in d
+    assert "license_number" in d
+    assert "area" in d
+    assert "verified" in d
+    assert "registered_at" in d
