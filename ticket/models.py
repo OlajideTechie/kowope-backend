@@ -103,6 +103,7 @@ class Ticket(models.Model):
             models.Index(fields=["ticket_number"]),
             models.Index(fields=["driver"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["valid_for_date"]),
         ]
 
         constraints = [

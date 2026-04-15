@@ -286,8 +286,10 @@ def test_fallback_validate_area_mismatch(auth_agent_other_area_client, active_ti
     response = auth_agent_other_area_client.get(
         FALLBACK_URL, {"phone_number": driver.phone_number}
     )
-    assert response.status_code == 403
+    assert response.status_code == 400
     assert response.json()["valid"] is False
+    error = str(response.json()["error"])
+    assert "not authorised" in error.lower() or "authorised" in error.lower()
 
 
 @pytest.mark.django_db
