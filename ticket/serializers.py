@@ -1,6 +1,7 @@
 # tickets/serializers.py
 
 from rest_framework import serializers
+from django.utils import timezone
 from .models import Ticket
 from django.core import signing
 from django.conf import settings
@@ -59,7 +60,7 @@ class TicketSerializer(serializers.ModelSerializer):
 class TicketQRValidationSerializer(serializers.Serializer):
     qr_code = serializers.UUIDField()
 
-    ticket = None 
+    ticket = None
 
     def validate_qr_code(self, value):
         try:
@@ -69,6 +70,43 @@ class TicketQRValidationSerializer(serializers.Serializer):
 
         if ticket.computed_status != Ticket.Status.ACTIVE:
             raise serializers.ValidationError(f"Ticket is {ticket.computed_status}")
+
+        self.ticket = ticket
+        return value
+
+    @property
+    def validated_data(self):
+        return {"ticket": self.ticket}
+
+
+class TicketFallbackValidationSerializer(serializers.Serializer):
+    phone_number = serializers.CharField(help_text="Driver's registered phone number")
+
+    ticket = None
+
+    def validate_phone_number(self, value):
+        from utils.phone import normalize_phone
+        normalized = normalize_phone(value)
+        today = timezone.localdate()
+
+        ticket = (
+            Ticket.objects
+            .select_related("driver", "area")
+            .filter(
+                driver__phone_number=normalized,
+                valid_for_date=today,
+                status=Ticket.Status.ACTIVE,
+            )
+            .first()
+        )
+
+        if not ticket:
+            raise serializers.ValidationError(
+                "No active ticket found for today."
+            )
+
+        if ticket.computed_status != Ticket.Status.ACTIVE:
+            raise serializers.ValidationError(f"Ticket is {ticket.computed_status}.")
 
         self.ticket = ticket
         return value

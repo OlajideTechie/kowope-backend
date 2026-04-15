@@ -62,7 +62,8 @@ kowope-backend/
 │       └── commands/
 │           ├── create_admin.py   # Create admin via CLI
 │           └── seed_admin.py     # Auto-seed admin on deploy (reads from env vars)
-├── agents/                # Agent invite flow
+├── agents/                # Agent invite + registration flow
+├── common/                # Shared Area model, seeded with Lagos areas, area list endpoint
 ├── payments/              # Paystack payment integration
 ├── ticket/                # Daily ticket issuance and verification
 ├── middleware/            # Custom permission classes (IsAdmin, IsAgent, IsDriver)
@@ -75,22 +76,57 @@ kowope-backend/
 
 ---
 
+## Area System
+
+Areas are seeded from a central `common.Area` model populated with ~80 Lagos areas. Both drivers and agents select from the same dropdown:
+
+- **Driver** selects one area at signup → area FK on `DriverProfile`
+- **Agent** selects one area at registration → area FK on `AgentProfile`
+- **Ticket** inherits the driver's area → area FK on `Ticket`
+- **Validation**: agents can only verify tickets whose area matches their own
+
+To fetch the dropdown list: `GET /api/v1/areas` (public)
+
+---
+
 ## API Endpoints
 
+### Driver Auth
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
-| POST | `/api/v1/auth/driver/signup` | Public | Driver registration |
+| POST | `/api/v1/auth/driver/signup` | Public | Driver registration (area UUID required) |
 | POST | `/api/v1/auth/driver/login` | Public | Driver login (phone + PIN) |
 | POST | `/api/v1/auth/driver/verify-otp` | Public | OTP phone verification |
-| POST | `/api/v1/auth/driver/resend-otp` | Public | Resend OTP |
+| POST | `/api/v1/auth/driver/resend-otp` | Driver | Resend OTP |
 | POST | `/api/v1/auth/driver/reset-pin` | Public | Reset driver PIN |
 | POST | `/api/v1/auth/driver/logout` | Driver | Logout |
 | GET  | `/api/v1/auth/driver/me` | Driver | Driver profile |
+
+### Admin & Agent Auth
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
 | POST | `/api/v1/auth/admin/login` | Public | Admin login |
 | POST | `/api/v1/auth/agent/login` | Public | Agent login |
-| POST | `/api/v1/agents/invite-agent` | Admin | Invite a new agent |
+
+### Agent Management
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| POST | `/api/v1/invite-agent` | Admin | Invite a new agent |
+| POST | `/api/v1/agents/complete-registration` | Public | Agent completes registration with area + KYC |
+| PATCH | `/api/v1/agents/<id>/approval` | Admin | Approve or reject agent |
+
+### Payments & Tickets
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
 | POST | `/api/v1/payment/` | Driver | Initiate ticket payment |
-| GET  | `/api/v1/ticket/` | Driver | View tickets |
+| GET  | `/api/v1/ticket/all` | Driver | Dashboard — active + recent tickets |
+| GET  | `/api/v1/ticket/agents/validate` | Agent | Validate ticket by QR code |
+| GET  | `/api/v1/ticket/agents/validate/fallback` | Agent | Validate ticket by driver phone number |
+
+### Common
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/api/v1/areas` | Public | List all Lagos areas (for dropdowns) |
 
 Full interactive docs at `/` or `/api/docs/` after running locally.
 

@@ -22,6 +22,7 @@ The system handles:
 1. Ticket creation and management.
 2. Automatic expiration of tickets **once per day** via a lazy check.
 3. Payment initialization while respecting ticket expiration and payment cutoff rules.
+4. **Area-based ticket validation** — tickets are tied to the driver's registered area and can only be verified by agents assigned to the same area.
 
 It is optimized to **avoid unnecessary database operations** when no expired tickets exist.
 
@@ -31,9 +32,11 @@ It is optimized to **avoid unnecessary database operations** when no expired tic
 
 Tickets move through the following states:
 
-1. **Active Ticket** – Newly created and valid for usage.
-2. **Lazy Expiration Check** – A daily check updates expired tickets.
-3. **Inactive Ticket** – Expired tickets are marked as inactive and cannot be used for payment.
+1. **Active** – Newly created, valid for today.
+2. **Inactive** – Past `valid_for_date`; marked by lazy expiration check.
+3. **Revoked** – Manually cancelled by admin.
+
+Each ticket carries the driver's `area` FK at creation time, inherited directly from `payment.driver.area`.
 
 **Notes:**
 
@@ -72,12 +75,26 @@ The lazy expiration approach:
 
 ---
 
+## Ticket Validation
+
+Agents validate tickets in two ways:
+
+| Method | Endpoint | How |
+|---|---|---|
+| QR Code | `GET /api/v1/ticket/agents/validate?qr_code=<uuid>` | Scan QR on driver's phone |
+| Phone Fallback | `GET /api/v1/ticket/agents/validate/fallback?phone_number=<number>` | Look up today's active ticket by driver phone |
+
+In both cases, the agent's assigned area must match the ticket's area, otherwise a `403` is returned.
+
+---
+
 ## Key Lessons & Design Considerations
 
 - **Lazy updates vs cron jobs**: Improved reliability and reduced dependencies on external schedulers.
 - **Atomic updates**: Using `.update()` ensures database changes happen efficiently.
 - **Defensive coding**: Prevented errors during migrations by skipping operations if tables are unavailable.
-- **System thinking**: Ensured ticket expiration, payment, and cutoff rules are interlinked and predictable.
+- **Area enforcement**: Tickets, drivers, and agents all reference the same `Area` FK — no string comparisons, no mismatch risk.
+- **Fallback validation**: Phone number lookup handles QR scanner failures gracefully without compromising area enforcement.
 
 ---
 

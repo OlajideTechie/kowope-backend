@@ -8,14 +8,52 @@ from rest_framework import status
 from middleware.permissions import IsAgent, IsDriver
 
 from .models import Ticket
-from .serializers import TicketSerializer, TicketQRValidationSerializer
+from .serializers import TicketSerializer, TicketQRValidationSerializer, TicketFallbackValidationSerializer
 
-from drf_spectacular.utils import extend_schema, OpenApiParameter
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample, OpenApiResponse
 
-@extend_schema(tags=["Agent"],
-               parameters=[
-              OpenApiParameter(name="qr_code", type=str, location=OpenApiParameter.QUERY, required=True),
-               ])
+
+TICKET_VALID_EXAMPLE = OpenApiExample(
+    "Valid ticket",
+    value={
+        "valid": True,
+        "ticket_number": "KWP-LAG-20260415-A1B2C3",
+        "driver_name": "Bola Tinubu",
+        "area": "Surulere",
+        "valid_for_date": "2026-04-15",
+        "status": "ACTIVE",
+    },
+    response_only=True,
+    status_codes=["200"],
+)
+
+TICKET_INVALID_EXAMPLE = OpenApiExample(
+    "Ticket not found / invalid",
+    value={"valid": False, "error": {"qr_code": ["Ticket not found"]}},
+    response_only=True,
+    status_codes=["400"],
+)
+
+TICKET_AREA_DENIED_EXAMPLE = OpenApiExample(
+    "Area mismatch",
+    value={"valid": False, "error": "You are not authorized to validate tickets for this area"},
+    response_only=True,
+    status_codes=["403"],
+)
+
+
+"""API Views for Ticket Management"""
+@extend_schema(
+    tags=["Agent"],
+    parameters=[
+        OpenApiParameter(name="qr_code", type=str, location=OpenApiParameter.QUERY, required=True),
+    ],
+    responses={
+        200: OpenApiResponse(description="Ticket is valid", examples=[TICKET_VALID_EXAMPLE]),
+        400: OpenApiResponse(description="Invalid or expired QR code", examples=[TICKET_INVALID_EXAMPLE]),
+        403: OpenApiResponse(description="Area mismatch", examples=[TICKET_AREA_DENIED_EXAMPLE]),
+    },
+)
 class ValidateTicketAPIView(APIView):
     permission_classes = [IsAgent]
     def get(self, request):
@@ -46,6 +84,58 @@ class ValidateTicketAPIView(APIView):
             "status": ticket.computed_status,
         })
 
+
+
+@extend_schema(
+    tags=["Agent"],
+    parameters=[
+        OpenApiParameter(name="phone_number", type=str, location=OpenApiParameter.QUERY, required=True),
+    ],
+    responses={
+        200: OpenApiResponse(description="Ticket is valid", examples=[TICKET_VALID_EXAMPLE]),
+        400: OpenApiResponse(
+            description="No active ticket for this number today",
+            examples=[
+                OpenApiExample(
+                    "No ticket found",
+                    value={"valid": False, "error": {"phone_number": ["No active ticket found for today."]}},
+                    response_only=True,
+                    status_codes=["400"],
+                )
+            ],
+        ),
+        403: OpenApiResponse(description="Area mismatch", examples=[TICKET_AREA_DENIED_EXAMPLE]),
+    },
+)
+class FallbackValidateTicketAPIView(APIView):
+    permission_classes = [IsAgent]
+
+    def get(self, request):
+        serializer = TicketFallbackValidationSerializer(data=request.query_params)
+
+        if not serializer.is_valid():
+            return Response({
+                "valid": False,
+                "error": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket = serializer.validated_data["ticket"]
+
+        agent_profile = request.user.agent_profile
+        if agent_profile.area_id != ticket.area_id:
+            return Response(
+                {"valid": False, "error": "You are not authorized to validate tickets for this area"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return Response({
+            "valid": True,
+            "ticket_number": ticket.ticket_number,
+            "driver_name": ticket.driver.full_name,
+            "area": ticket.area.name,
+            "valid_for_date": ticket.valid_for_date,
+            "status": ticket.computed_status,
+        })
 
 
 @extend_schema(tags=["Tickets"],)
