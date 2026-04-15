@@ -82,3 +82,32 @@ class CompleteRegistrationSerializer(serializers.Serializer):
 
 class AgentApprovalSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["approve", "reject"])
+
+
+class ValidatedTicketSerializer(serializers.Serializer):
+    ticket_number = serializers.CharField()
+    driver_name = serializers.CharField(source="driver.full_name")
+    license_number = serializers.CharField(source="driver.license_number")
+    area = serializers.CharField(source="area.name")
+    valid_for_date = serializers.DateField()
+    validated_at = serializers.DateTimeField()
+    status = serializers.CharField(source="computed_status")
+
+
+class AgentDashboardSerializer(serializers.Serializer):
+    agent = serializers.SerializerMethodField()
+    summary = serializers.SerializerMethodField()
+    validated_tickets = serializers.SerializerMethodField()
+
+    def get_agent(self, obj):
+        return {
+            "name": obj["agent"].full_name,
+            "area": obj["agent"].area.name if obj["agent"].area else None,
+            "status": obj["agent"].status,
+        }
+
+    def get_summary(self, obj):
+        return obj["summary"]
+
+    def get_validated_tickets(self, obj):
+        return ValidatedTicketSerializer(obj["validated_tickets"], many=True).data

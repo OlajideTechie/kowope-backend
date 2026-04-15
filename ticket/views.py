@@ -75,11 +75,16 @@ class ValidateTicketAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
+        ticket.validated_by = agent_profile
+        ticket.validated_at = timezone.now()
+        ticket.save(update_fields=["validated_by", "validated_at"])
+
         return Response({
             "valid": True,
             "ticket_number": ticket.ticket_number,
             "driver_name": ticket.driver.full_name,
             "area": ticket.area.name,
+            "license_number": ticket.driver.license_number,
             "valid_for_date": ticket.valid_for_date,
             "status": ticket.computed_status,
         })
@@ -125,11 +130,16 @@ class FallbackValidateTicketAPIView(APIView):
 
         ticket = serializer.validated_data["ticket"]
 
+        ticket.validated_by = request.user.agent_profile
+        ticket.validated_at = timezone.now()
+        ticket.save(update_fields=["validated_by", "validated_at"])
+
         return Response({
             "valid": True,
             "ticket_number": ticket.ticket_number,
             "driver_name": ticket.driver.full_name,
             "area": ticket.area.name,
+            "license_number": ticket.driver.license_number,
             "valid_for_date": ticket.valid_for_date,
             "status": ticket.computed_status,
         })

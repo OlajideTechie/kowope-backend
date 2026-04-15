@@ -178,7 +178,7 @@ QR_VALIDATE_URL = "/api/v1/ticket/agents/validate"
 
 
 @pytest.mark.django_db
-def test_qr_validate_active_ticket(auth_agent_client, active_ticket):
+def test_qr_validate_active_ticket(auth_agent_client, active_ticket, agent):
     response = auth_agent_client.get(
         QR_VALIDATE_URL, {"qr_code": str(active_ticket.qr_code)}
     )
@@ -187,6 +187,10 @@ def test_qr_validate_active_ticket(auth_agent_client, active_ticket):
     assert data["valid"] is True
     assert data["ticket_number"] == active_ticket.ticket_number
     assert data["status"] == "ACTIVE"
+
+    active_ticket.refresh_from_db()
+    assert active_ticket.validated_by == agent
+    assert active_ticket.validated_at is not None
 
 
 @pytest.mark.django_db
@@ -241,7 +245,7 @@ FALLBACK_URL = "/api/v1/ticket/agents/validate/fallback"
 
 
 @pytest.mark.django_db
-def test_fallback_validate_active_ticket(auth_agent_client, active_ticket, driver):
+def test_fallback_validate_active_ticket(auth_agent_client, active_ticket, driver, agent):
     response = auth_agent_client.get(
         FALLBACK_URL, {"phone_number": driver.phone_number}
     )
@@ -250,6 +254,10 @@ def test_fallback_validate_active_ticket(auth_agent_client, active_ticket, drive
     assert data["valid"] is True
     assert data["ticket_number"] == active_ticket.ticket_number
     assert data["status"] == "ACTIVE"
+
+    active_ticket.refresh_from_db()
+    assert active_ticket.validated_by == agent
+    assert active_ticket.validated_at is not None
 
 
 @pytest.mark.django_db

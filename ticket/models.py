@@ -42,6 +42,16 @@ class Ticket(models.Model):
         default=Status.ACTIVE
     )
 
+    validated_by = models.ForeignKey(
+        "authentication.AgentProfile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="validated_tickets",
+    )
+
+    validated_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(default=timezone.now)
 
     valid_for_date = models.DateField() # Ticket valid date in Nigeria local date
