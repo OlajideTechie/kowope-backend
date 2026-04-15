@@ -111,7 +111,11 @@ class FallbackValidateTicketAPIView(APIView):
     permission_classes = [IsAgent]
 
     def get(self, request):
-        serializer = TicketFallbackValidationSerializer(data=request.query_params)
+        agent_area = request.user.agent_profile.area
+        serializer = TicketFallbackValidationSerializer(
+            data=request.query_params,
+            context={"agent_area": agent_area},
+        )
 
         if not serializer.is_valid():
             return Response({
@@ -120,13 +124,6 @@ class FallbackValidateTicketAPIView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         ticket = serializer.validated_data["ticket"]
-
-        agent_profile = request.user.agent_profile
-        if agent_profile.area_id != ticket.area_id:
-            return Response(
-                {"valid": False, "error": "You are not authorized to validate tickets for this area"},
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         return Response({
             "valid": True,

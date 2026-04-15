@@ -88,7 +88,14 @@ class TicketFallbackValidationSerializer(serializers.Serializer):
         from utils.phone import normalize_phone
         normalized = normalize_phone(value)
         today = timezone.localdate()
+        agent_area = self.context.get("agent_area")
 
+        if not agent_area:
+            raise serializers.ValidationError(
+                "Your account has no area assigned. Contact an admin."
+            )
+
+        # Step 1: check if driver has any active ticket today (ignore area)
         ticket = (
             Ticket.objects
             .select_related("driver", "area")
@@ -102,11 +109,17 @@ class TicketFallbackValidationSerializer(serializers.Serializer):
 
         if not ticket:
             raise serializers.ValidationError(
-                "No active ticket found for today."
+                "No active ticket found for this driver today."
             )
 
         if ticket.computed_status != Ticket.Status.ACTIVE:
             raise serializers.ValidationError(f"Ticket is {ticket.computed_status}.")
+
+        # Step 2: check if ticket area matches agent's area
+        if ticket.area_id != agent_area.id:
+            raise serializers.ValidationError(
+                f"You are only authorised to validate tickets in {agent_area.name}."
+            )
 
         self.ticket = ticket
         return value
