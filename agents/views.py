@@ -206,7 +206,7 @@ class AdminDashboardView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
-        from authentication.models import DriverProfile
+        from authentication.models import DriverDocument
         from common.models import Area
         from payments.models import Payment
 
@@ -223,7 +223,7 @@ class AdminDashboardView(APIView):
         )
 
         # Pending actions
-        drivers_awaiting_verification = DriverProfile.objects.filter(verified=False).count()
+        drivers_awaiting_verification = DriverDocument.objects.filter(status="pending").count()
         agents_pending_approval = AgentProfile.objects.filter(
             status="pending_approval"
         ).count()

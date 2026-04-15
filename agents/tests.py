@@ -402,7 +402,18 @@ def test_admin_dashboard_counts_todays_tickets(auth_admin_client, driver, area):
 
 @pytest.mark.django_db
 def test_admin_dashboard_pending_verification_count(auth_admin_client, driver):
-    # driver fixture has verified=False by default
+    from authentication.models import DriverDocument
+    import tempfile
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from unittest.mock import patch
+
+    with patch("cloudinary.uploader.upload", return_value={"public_id": "test", "secure_url": "http://test.com/doc"}):
+        DriverDocument.objects.create(
+            driver=driver,
+            document_type="nin",
+            document_file="test_doc",
+            status="pending",
+        )
     response = auth_admin_client.get(ADMIN_DASHBOARD_URL)
     assert response.json()["pending"]["drivers_awaiting_verification"] >= 1
 
