@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from services.otp_service import OTPService
 from authentication.models import AdminProfile, AgentProfile, DriverProfile
 from common.models import Area
+from utils.phone import normalize_phone
 
 User = get_user_model()
 
@@ -31,7 +32,6 @@ def api_client():
 
 @pytest.fixture
 def lagos_area(db):
-    """Creates a reusable Area instance for tests."""
     return Area.objects.create(name="Ikeja", lga="Ikeja", state="Lagos")
 
 
@@ -39,13 +39,13 @@ def lagos_area(db):
 def create_user(lagos_area):
     """
     Creates a User + DriverProfile directly (bypasses the API).
-    phone_number is stored raw (11 digits) on User so login/OTP lookups work.
-    DriverProfile.save() normalises the phone to E164 internally.
-    is_phone_verified=True by default so login works; pass False for OTP flow tests.
+    Stores phone_number in E164 format on both models, matching real signup behavior.
+    Pass is_phone_verified=False to test OTP flow.
     """
     def _create_user(phone_number="08031234567", pin="2468", is_phone_verified=True):
+        normalized = normalize_phone(phone_number)
         user = User.objects.create(
-            phone_number=phone_number,
+            phone_number=normalized,
             role="driver",
             is_active=True,
         )
@@ -53,7 +53,7 @@ def create_user(lagos_area):
             user=user,
             full_name="Test Driver",
             area=lagos_area,
-            phone_number=phone_number,
+            phone_number=normalized,
             license_number="ABCDE12",
             is_phone_verified=is_phone_verified,
             verified=is_phone_verified,
@@ -66,7 +66,8 @@ def create_user(lagos_area):
 @pytest.fixture
 def generate_otp():
     def _generate_otp(phone_number, purpose="signup"):
-        return OTPService.create_otp(phone_number=phone_number, purpose=purpose)
+        with patch("services.sms_service.SMSService.send_otp"):
+            return OTPService.create_otp(phone_number=phone_number, purpose=purpose)
     return _generate_otp
 
 
@@ -94,7 +95,8 @@ def test_signup(api_client, lagos_area, phone_number, full_name, pin):
         "document_type": "nin",
         "document_file": doc,
     }
-    with patch("cloudinary.uploader.upload", return_value=CLOUDINARY_MOCK):
+    with patch("cloudinary.uploader.upload", return_value=CLOUDINARY_MOCK), \
+         patch("services.sms_service.SMSService.send_otp"):
         response = api_client.post("/api/v1/auth/driver/signup", data, format="multipart")
     assert response.status_code == 201
     assert response.json()["success"] is True
@@ -114,7 +116,8 @@ def test_signup_existing_phone(api_client, lagos_area, create_user):
         "document_type": "nin",
         "document_file": doc,
     }
-    with patch("cloudinary.uploader.upload", return_value=CLOUDINARY_MOCK):
+    with patch("cloudinary.uploader.upload", return_value=CLOUDINARY_MOCK), \
+         patch("services.sms_service.SMSService.send_otp"):
         response = api_client.post("/api/v1/auth/driver/signup", data, format="multipart")
     assert response.status_code == 400
     assert "Phone number already registered" in str(response.json())
@@ -160,31 +163,109 @@ def test_signup_pin_mismatch_rejected(api_client, lagos_area):
 # OTP Verification Tests
 # -------------------------------
 
+LOCAL_PHONE = "08031234567"
+VERIFY_OTP_URL = "/api/v1/auth/driver/verify-otp"
+
+
 @pytest.mark.django_db
 def test_otp_verification_flow(api_client, create_user, generate_otp):
-    # User must NOT be verified yet
-    user = create_user("08031234567", is_phone_verified=False)
+    user = create_user(LOCAL_PHONE, is_phone_verified=False)
     otp = generate_otp(user.phone_number)
 
-    data = {"phone_number": user.phone_number, "code": otp.code}
-    response = api_client.post("/api/v1/auth/driver/verify-otp", data, format="json")
+    # Endpoint accepts 11-digit local format; serializer normalizes internally
+    data = {"phone_number": LOCAL_PHONE, "code": otp.code}
+    response = api_client.post(VERIFY_OTP_URL, data, format="json")
     assert response.status_code == 200
     assert response.json()["success"] is True
 
     # Reusing the same OTP must fail
-    response = api_client.post("/api/v1/auth/driver/verify-otp", data, format="json")
+    response = api_client.post(VERIFY_OTP_URL, data, format="json")
     assert response.status_code == 400
     assert response.json()["success"] is False
 
 
 @pytest.mark.django_db
 def test_otp_already_verified_rejected(api_client, create_user, generate_otp):
-    user = create_user("08031234567", is_phone_verified=True)
-    otp = generate_otp(user.phone_number)
-    data = {"phone_number": user.phone_number, "code": otp.code}
-    response = api_client.post("/api/v1/auth/driver/verify-otp", data, format="json")
+    create_user(LOCAL_PHONE, is_phone_verified=True)
+    otp = generate_otp(normalize_phone(LOCAL_PHONE))
+    data = {"phone_number": LOCAL_PHONE, "code": otp.code}
+    response = api_client.post(VERIFY_OTP_URL, data, format="json")
     assert response.status_code == 400
     assert "already verified" in response.json()["message"]
+
+
+@pytest.mark.django_db
+def test_otp_verify_unknown_phone_returns_404(api_client, generate_otp):
+    """No user registered → 404 instead of 500."""
+    otp = generate_otp(normalize_phone(LOCAL_PHONE))
+    data = {"phone_number": LOCAL_PHONE, "code": otp.code}
+    response = api_client.post(VERIFY_OTP_URL, data, format="json")
+    assert response.status_code == 404
+    assert response.json()["success"] is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("phone,code", [
+    ("0803123456", "123456"),   # 10 digits
+    ("080312345678", "123456"),  # 12 digits
+    ("0803ABCDEF", "123456"),   # non-numeric
+    (LOCAL_PHONE, "12345"),     # 5-digit code
+    (LOCAL_PHONE, "ABCDEF"),    # non-numeric code
+])
+def test_otp_verify_invalid_input_rejected(api_client, phone, code):
+    response = api_client.post(VERIFY_OTP_URL, {"phone_number": phone, "code": code}, format="json")
+    assert response.status_code == 400
+
+
+# -------------------------------
+# Resend OTP Tests
+# -------------------------------
+
+RESEND_OTP_URL = "/api/v1/auth/driver/resend-otp"
+
+
+@pytest.mark.django_db
+def test_resend_otp_success(api_client, create_user):
+    create_user(LOCAL_PHONE, is_phone_verified=False)
+    with patch("services.sms_service.SMSService.send_otp"):
+        response = api_client.post(RESEND_OTP_URL, {"phone_number": LOCAL_PHONE}, format="json")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
+@pytest.mark.django_db
+def test_resend_otp_unknown_phone_rejected(api_client):
+    response = api_client.post(RESEND_OTP_URL, {"phone_number": LOCAL_PHONE}, format="json")
+    assert response.status_code == 400
+    assert "No driver profile found" in str(response.json())
+
+
+@pytest.mark.django_db
+def test_resend_otp_already_verified_rejected(api_client, create_user):
+    create_user(LOCAL_PHONE, is_phone_verified=True)
+    response = api_client.post(RESEND_OTP_URL, {"phone_number": LOCAL_PHONE}, format="json")
+    assert response.status_code == 400
+    assert "already verified" in str(response.json()).lower()
+
+
+@pytest.mark.django_db
+def test_resend_otp_no_auth_required(api_client, create_user):
+    """AllowAny — unauthenticated requests must succeed."""
+    create_user(LOCAL_PHONE, is_phone_verified=False)
+    with patch("services.sms_service.SMSService.send_otp"):
+        response = api_client.post(RESEND_OTP_URL, {"phone_number": LOCAL_PHONE}, format="json")
+    assert response.status_code == 200
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("phone", [
+    "0803123456",    # 10 digits
+    "080312345678",  # 12 digits
+    "0803ABCDEF",   # non-numeric
+])
+def test_resend_otp_invalid_phone_rejected(api_client, phone):
+    response = api_client.post(RESEND_OTP_URL, {"phone_number": phone}, format="json")
+    assert response.status_code == 400
 
 
 # -------------------------------
@@ -200,7 +281,7 @@ def test_otp_already_verified_rejected(api_client, create_user, generate_otp):
     ],
 )
 def test_login_flow(api_client, create_user, pin, expected_success):
-    user = create_user("08031234567", pin="2468")
+    user = create_user(LOCAL_PHONE, pin="2468")
     data = {"phone_number": user.phone_number, "pin": pin}
     response = api_client.post("/api/v1/auth/driver/login", data, format="json")
     if expected_success:
@@ -214,7 +295,7 @@ def test_login_flow(api_client, create_user, pin, expected_success):
 
 @pytest.mark.django_db
 def test_login_unverified_phone_rejected(api_client, create_user):
-    user = create_user("08031234567", is_phone_verified=False)
+    user = create_user(LOCAL_PHONE, is_phone_verified=False)
     response = api_client.post(
         "/api/v1/auth/driver/login",
         {"phone_number": user.phone_number, "pin": "2468"},
@@ -230,24 +311,24 @@ def test_login_unverified_phone_rejected(api_client, create_user):
 
 @pytest.mark.django_db
 def test_reset_pin_flow(api_client, create_user, generate_otp):
-    user = create_user("08031234567", pin="2468")
+    user = create_user(LOCAL_PHONE, pin="2468")
 
     # Phase 1: initiate — just phone number
-    response = api_client.post(
-        "/api/v1/auth/driver/reset-pin",
-        {"phone_number": user.phone_number},
-        format="json",
-    )
+    with patch("services.sms_service.SMSService.send_otp"):
+        response = api_client.post(
+            "/api/v1/auth/driver/reset-pin",
+            {"phone_number": LOCAL_PHONE},
+            format="json",
+        )
     assert response.status_code == 200
     assert response.json()["message"] == "OTP has been sent to your phone."
 
-    # Manually generate OTP to simulate delivery
     otp = generate_otp(user.phone_number, purpose="reset_pin")
 
     # Phase 2: verify OTP + set new PIN
     response = api_client.post(
         "/api/v1/auth/driver/reset-pin",
-        {"phone_number": user.phone_number, "otp_code": otp.code, "new_pin": "5867"},
+        {"phone_number": LOCAL_PHONE, "otp_code": otp.code, "new_pin": "5867"},
         format="json",
     )
     assert response.status_code == 200
