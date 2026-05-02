@@ -172,7 +172,6 @@ def test_otp_verification_flow(api_client, create_user, generate_otp):
     user = create_user(LOCAL_PHONE, is_phone_verified=False)
     otp = generate_otp(user.phone_number)
 
-    # Endpoint accepts 11-digit local format; serializer normalizes internally
     data = {"phone_number": LOCAL_PHONE, "code": otp.code}
     response = api_client.post(VERIFY_OTP_URL, data, format="json")
     assert response.status_code == 200
@@ -206,15 +205,26 @@ def test_otp_verify_unknown_phone_returns_404(api_client, generate_otp):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("phone,code", [
-    ("0803123456", "123456"),   # 10 digits
-    ("080312345678", "123456"),  # 12 digits
-    ("0803ABCDEF", "123456"),   # non-numeric
-    (LOCAL_PHONE, "12345"),     # 5-digit code
-    (LOCAL_PHONE, "ABCDEF"),    # non-numeric code
+    ("0803123456", "123456"),    # too short — not a valid NG number
+    ("080312345678", "123456"),  # too long — not a valid NG number
+    ("not-a-phone", "123456"),   # garbage
+    (LOCAL_PHONE, "12345"),      # 5-digit code
+    (LOCAL_PHONE, "ABCDEF"),     # non-numeric code
 ])
 def test_otp_verify_invalid_input_rejected(api_client, phone, code):
     response = api_client.post(VERIFY_OTP_URL, {"phone_number": phone, "code": code}, format="json")
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_otp_verify_accepts_e164_format(api_client, create_user, generate_otp):
+    """Users sending +2348031234567 instead of 08031234567 must be accepted."""
+    user = create_user(LOCAL_PHONE, is_phone_verified=False)
+    otp = generate_otp(user.phone_number)
+    data = {"phone_number": "+2348031234567", "code": otp.code}
+    response = api_client.post(VERIFY_OTP_URL, data, format="json")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
 
 
 # -------------------------------
@@ -259,13 +269,22 @@ def test_resend_otp_no_auth_required(api_client, create_user):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("phone", [
-    "0803123456",    # 10 digits
-    "080312345678",  # 12 digits
-    "0803ABCDEF",   # non-numeric
+    "0803123456",    # too short — not a valid NG number
+    "080312345678",  # too long — not a valid NG number
+    "not-a-phone",   # garbage
 ])
 def test_resend_otp_invalid_phone_rejected(api_client, phone):
     response = api_client.post(RESEND_OTP_URL, {"phone_number": phone}, format="json")
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_resend_otp_accepts_e164_format(api_client, create_user):
+    """Users sending +2348031234567 instead of 08031234567 must be accepted."""
+    create_user(LOCAL_PHONE, is_phone_verified=False)
+    with patch("services.sms_service.SMSService.send_otp"):
+        response = api_client.post(RESEND_OTP_URL, {"phone_number": "+2348031234567"}, format="json")
+    assert response.status_code == 200
 
 
 # -------------------------------

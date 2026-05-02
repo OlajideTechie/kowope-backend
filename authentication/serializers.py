@@ -98,13 +98,6 @@ class DriverSignupSerializer(serializers.Serializer):
         return value
     
     def validate_phone_number(self, value):
-        if not value:
-            raise serializers.ValidationError("Phone number is required")
-        if not value.isdigit():
-            raise serializers.ValidationError("Phone number must be numeric")
-        if len(value) != 11:
-            raise serializers.ValidationError("Phone number must be 11 digits long")
-
         try:
             normalized = normalize_phone(value)
         except ValueError:
@@ -146,6 +139,12 @@ class DriverSignupSerializer(serializers.Serializer):
 class DriverLoginSerializer(serializers.Serializer):
     phone_number = serializers.CharField()
     pin = serializers.CharField()
+
+    def validate_phone_number(self, value):
+        try:
+            return normalize_phone(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid phone number")
 
     def validate(self, data):
         user = User.objects.filter(
@@ -219,17 +218,11 @@ class VerifyOTPSerializer(serializers.Serializer):
     code = serializers.CharField()
 
     def validate_phone_number(self, value):
-        if not value:
-            raise serializers.ValidationError("Phone number is required")
-        if not value.isdigit():
-            raise serializers.ValidationError("Phone number must be numeric")
-        if len(value) != 11:
-            raise serializers.ValidationError("Phone number must be 11 digits long")
         try:
             return normalize_phone(value)
         except ValueError:
             raise serializers.ValidationError("Invalid phone number")
-    
+
     def validate_code(self, value):
         if not value:
             raise serializers.ValidationError("OTP code is required")
@@ -247,12 +240,11 @@ class ResendOTPSerializer(serializers.Serializer):
     phone_number = serializers.CharField()
 
     def validate_phone_number(self, value):
-        if not value.isdigit():
-            raise serializers.ValidationError("Phone number must be numeric")
-        if len(value) != 11:
-            raise serializers.ValidationError("Phone number must be 11 digits long")
+        try:
+            normalized_phone = normalize_phone(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid phone number")
 
-        normalized_phone = normalize_phone(value)
         driver_profile = DriverProfile.objects.filter(phone_number=normalized_phone).first()
 
         if not driver_profile:
