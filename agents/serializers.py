@@ -22,7 +22,6 @@ class CompleteRegistrationSerializer(serializers.Serializer):
     token = serializers.CharField()
     full_name = serializers.CharField(required=True)
     area = serializers.UUIDField(required=True, help_text="UUID of the area from /api/v1/areas/")
-    lga = serializers.CharField(required=True)
     password = serializers.CharField(write_only=True, required=True)
     confirm_password = serializers.CharField(write_only=True, required=True)
     nin_document = serializers.FileField()
@@ -47,7 +46,7 @@ class CompleteRegistrationSerializer(serializers.Serializer):
         if data["password"].lower() in ["password", "12345678", "qwerty"]:
             raise serializers.ValidationError("Password is too common.")
         
-        if data["password"].lower() in [data["full_name"].lower(), data["lga"].lower()]:
+        if data["password"].lower() == data["full_name"].lower():
             raise serializers.ValidationError("Password should not contain personal information.")
         if data["password"].isdigit():
             raise serializers.ValidationError("Password should not be entirely numeric.")
@@ -62,8 +61,6 @@ class CompleteRegistrationSerializer(serializers.Serializer):
             data["area"] = Area.objects.get(id=data["area"])
         except Area.DoesNotExist:
             raise serializers.ValidationError("Invalid area selected. Choose from /api/v1/areas/")
-        if not data["lga"].strip():
-            raise serializers.ValidationError("LGA cannot be empty.")
         if not data["password"].strip():
             raise serializers.ValidationError("Password cannot be empty.")
         if not data["nin_document"]:
@@ -82,6 +79,39 @@ class CompleteRegistrationSerializer(serializers.Serializer):
 
 class AgentApprovalSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["approve", "reject"])
+
+
+class AgentListSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    area = serializers.CharField(source="area.name", read_only=True)
+    lga = serializers.CharField(source="area.lga", read_only=True)
+
+    class Meta:
+        model = AgentProfile
+        fields = ["id", "full_name", "email", "area", "lga", "status", "created_at"]
+
+
+class AgentDetailSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source="user.email", read_only=True)
+    area_name = serializers.CharField(source="area.name", read_only=True)
+    area_id = serializers.UUIDField(source="area.id", read_only=True)
+    lga = serializers.CharField(source="area.lga", read_only=True)
+    invited_by = serializers.EmailField(source="invited_by.email", read_only=True)
+    nin_document = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AgentProfile
+        fields = [
+            "id", "full_name", "email",
+            "area_id", "area_name", "lga",
+            "status", "nin_document",
+            "invited_by", "created_at", "updated_at",
+        ]
+
+    def get_nin_document(self, obj):
+        if not obj.nin_document:
+            return None
+        return DocumentVerificationService.get_signed_url(obj.nin_document)
 
 
 class ValidatedTicketSerializer(serializers.Serializer):

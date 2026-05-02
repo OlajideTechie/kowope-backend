@@ -90,8 +90,6 @@ class AgentProfile(models.Model):
         related_name="agents",
     )
 
-    lga = models.CharField(max_length=100, null=True, blank=True)
-
     status = models.CharField(
         max_length=20,
         choices=AgentStatus.choices,
@@ -154,8 +152,6 @@ class DriverProfile(models.Model):
         related_name="drivers"
     )
     
-    lga = models.CharField(max_length=50)
-
     phone_number = models.CharField(unique=True, max_length=15, db_index=True)
 
     license_number = models.CharField(max_length=20, db_index=True)

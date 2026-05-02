@@ -23,7 +23,6 @@ class DriverSignupSerializer(serializers.Serializer):
     phone_number = serializers.CharField(required=True)
 
     area = serializers.UUIDField(required=True, help_text="UUID of the area from /api/v1/areas/")
-    lga = serializers.CharField(required=True)
 
     license_number = serializers.CharField(required=True)
 
@@ -86,9 +85,6 @@ class DriverSignupSerializer(serializers.Serializer):
         
         if not data.get("confirm_pin"):
             raise serializers.ValidationError("Confirm pin is required")
-
-        if not data.get("lga"):
-            raise serializers.ValidationError("LGA is required")
 
         return data
     
@@ -382,6 +378,7 @@ class DriverProfileSerializer(serializers.ModelSerializer):
     created_at = serializers.DateTimeField(source="user.created_at", read_only=True)
     documents = DriverDocumentSerializer(source="document", read_only=True)
     area = serializers.CharField(source="area.name", read_only=True)
+    lga = serializers.CharField(source="area.lga", read_only=True)
 
     class Meta:
         model = DriverProfile
