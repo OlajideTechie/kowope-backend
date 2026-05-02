@@ -1,13 +1,12 @@
-from unittest import result
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics, permissions
 from drf_spectacular.utils import OpenApiResponse
 from drf_spectacular.utils import extend_schema
-from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+from rest_framework_simplejwt.exceptions import TokenError
 from django.db import transaction
-from urllib3 import Retry
 from authentication.models import OTP, User, DriverProfile
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.types import OpenApiTypes
@@ -15,12 +14,7 @@ from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.throttling import ScopedRateThrottle
 from django.core.cache import cache
 from django.conf import settings
-
-
-from datetime import timedelta
 from datetime import datetime
-
-from drf_spectacular import openapi
 
 from authentication.models import User
 from services.document_verification_service import DocumentVerificationService
@@ -28,7 +22,6 @@ from authentication.serializers import (
     DriverSignupSerializer,
     DriverLoginSerializer,
     UserSerializer,
-    DriverLogoutSerializer,
     StaffSignupSerializer,
     StaffLoginSerializer,
     VerifyOTPSerializer,
@@ -38,10 +31,10 @@ from authentication.serializers import (
     ResendOTPSerializer,
 )
 from authentication.models import AdminProfile, AgentProfile
-
 from services.sms_service import SMSService
 from services.otp_service import OTPService
 from middleware.permissions import IsDriver, IsAdmin, IsAgent
+from utils.cookies import set_auth_cookies, clear_auth_cookies, REFRESH_COOKIE
 
 
 import logging
@@ -108,9 +101,6 @@ class DriverSignupView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
 
-        # generate auth token
-        refresh = RefreshToken.for_user(self.user)
-
         otp = OTPService.create_otp(
             phone_number=self.user.phone_number, 
             purpose="signup"
@@ -175,61 +165,47 @@ class DriverLoginView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
 
-        # Generate JWT tokens
         refresh = RefreshToken.for_user(user)
         access_token = refresh.access_token
-
         expires_in = datetime.fromtimestamp(access_token.payload['exp']) - datetime.now()
 
         logger.info(f"Driver logged in as: {user.driver_profile.full_name}")
 
-        return Response({
+        response = Response({
             "success": True,
             "result": {
                 'user': UserSerializer(user).data,
                 'full_name': user.driver_profile.full_name,
-                'access_token': str(refresh.access_token),
-                'refresh_token': str(refresh),
-                'expires_in': expires_in.total_seconds()
+                'expires_in': expires_in.total_seconds(),
             }
         }, status=status.HTTP_200_OK)
+        set_auth_cookies(response, str(access_token), str(refresh))
+        return response
     
 
 @extend_schema(
-    request=DriverLogoutSerializer,
     tags=["Driver Authentication"],
     responses={
-        200: OpenApiResponse(
-            response=None,
-            description="Driver logged out successfully"
-        ),
-        400: OpenApiResponse(
-            response=None,
-            description="Invalid request"
-        )
+        200: OpenApiResponse(response=None, description="Driver logged out successfully"),
     }
 )
 class DriverLogoutView(APIView):
-    permission_classes = [IsDriver]
-    serializer_class = DriverLogoutSerializer
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        try:
-            refresh_token = request.data["refresh_token"]
-            token = RefreshToken(refresh_token)
-            token.blacklist()
+        refresh_token = request.COOKIES.get(REFRESH_COOKIE)
+        if refresh_token:
+            try:
+                RefreshToken(refresh_token).blacklist()
+            except Exception:
+                pass  # already blacklisted or invalid — still proceed
 
-            logger.info(f"Driver logged out as: {request.user.driver_profile.full_name}")
-
-            return Response({
-                "success": True,
-                "message": "You have been logged out successfully"
-            }, status=status.HTTP_200_OK)
-        except Exception as e:
-            return Response({
-                "success": False,
-                "message": "Invalid refresh token"
-            }, status=status.HTTP_400_BAD_REQUEST)
+        response = Response({
+            "success": True,
+            "message": "You have been logged out successfully"
+        }, status=status.HTTP_200_OK)
+        clear_auth_cookies(response)
+        return response
         
 
 """API View to verify OTP for phone number verification and other purposes"""
@@ -308,23 +284,21 @@ class VerifyOTPView(APIView):
             # Auto login after verification
             refresh_token = RefreshToken.for_user(user)
             access_token = refresh_token.access_token
-            
-            # calculate token expiry time in seconds eg 300 seconds
             expires_in = datetime.fromtimestamp(access_token.payload['exp']) - datetime.now()
 
-            return Response(
+            response = Response(
                 {
                     "success": True,
                     "result": {
-                    "full_name": user.driver_profile.full_name,
-                    'user': UserSerializer(user).data,
-                    'access_token': str(refresh_token.access_token),
-                    'refresh_token': str(refresh_token),
-                    'expires_in': expires_in.total_seconds()
-            }
+                        "full_name": user.driver_profile.full_name,
+                        "user": UserSerializer(user).data,
+                        "expires_in": expires_in.total_seconds(),
+                    }
                 },
                 status=status.HTTP_200_OK
             )
+            set_auth_cookies(response, str(access_token), str(refresh_token))
+            return response
 
         except ValueError as e:
             return Response(
@@ -586,19 +560,19 @@ class AdminLoginView(APIView):
 
         logger.info(f"Admin logged in: {user.email}")
 
-        return Response(
+        response = Response(
             {
                 "success": True,
                 "result": {
                     "user": UserSerializer(user).data,
                     "level": admin_profile.level if admin_profile else user.role,
-                    "access_token": str(access_token),
-                    "refresh_token": str(refresh),
                     "expires_in": expires_in.total_seconds(),
                 },
             },
             status=status.HTTP_200_OK,
         )
+        set_auth_cookies(response, str(access_token), str(refresh))
+        return response
 
 
 @extend_schema(
@@ -639,16 +613,52 @@ class AgentLoginView(APIView):
 
         logger.info(f"Agent logged in: {user.email}")
 
-        return Response(
+        response = Response(
             {
                 "success": True,
                 "result": {
                     "user": UserSerializer(user).data,
                     "status": agent_profile.status,
-                    "access_token": str(access_token),
-                    "refresh_token": str(refresh),
                     "expires_in": expires_in.total_seconds(),
                 },
             },
             status=status.HTTP_200_OK,
         )
+        set_auth_cookies(response, str(access_token), str(refresh))
+        return response
+
+
+class CookieTokenRefreshView(APIView):
+    """
+    Rotates the refresh token stored in the HttpOnly cookie.
+    Reuses TokenRefreshSerializer so ROTATE_REFRESH_TOKENS and
+    BLACKLIST_AFTER_ROTATION settings are honoured automatically.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        refresh_token = request.COOKIES.get(REFRESH_COOKIE)
+
+        if not refresh_token:
+            return Response(
+                {"success": False, "message": "Session expired. Please log in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+
+        serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError:
+            response = Response(
+                {"success": False, "message": "Session expired. Please log in again."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+            clear_auth_cookies(response)
+            return response
+
+        new_access = serializer.validated_data["access"]
+        new_refresh = serializer.validated_data.get("refresh", refresh_token)
+
+        response = Response({"success": True}, status=status.HTTP_200_OK)
+        set_auth_cookies(response, new_access, new_refresh)
+        return response
