@@ -5,4 +5,4 @@ from .models import Area
 class AreaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Area
-        fields = ["id", "name"]
+        fields = ["id", "name", "lga"]

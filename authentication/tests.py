@@ -32,7 +32,7 @@ def api_client():
 @pytest.fixture
 def lagos_area(db):
     """Creates a reusable Area instance for tests."""
-    return Area.objects.create(name="Ikeja", state="Lagos")
+    return Area.objects.create(name="Ikeja", lga="Ikeja", state="Lagos")
 
 
 @pytest.fixture
@@ -53,7 +53,6 @@ def create_user(lagos_area):
             user=user,
             full_name="Test Driver",
             area=lagos_area,
-            lga="Ikeja",
             phone_number=phone_number,
             license_number="ABCDE12",
             is_phone_verified=is_phone_verified,
@@ -91,7 +90,6 @@ def test_signup(api_client, lagos_area, phone_number, full_name, pin):
         "pin": pin,
         "confirm_pin": pin,
         "area": str(lagos_area.id),
-        "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
         "document_file": doc,
@@ -112,7 +110,6 @@ def test_signup_existing_phone(api_client, lagos_area, create_user):
         "pin": "2468",
         "confirm_pin": "2468",
         "area": str(lagos_area.id),
-        "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
         "document_file": doc,
@@ -132,7 +129,6 @@ def test_signup_weak_pin_rejected(api_client, lagos_area):
         "pin": "1234",
         "confirm_pin": "1234",
         "area": str(lagos_area.id),
-        "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
         "document_file": doc,
@@ -151,7 +147,6 @@ def test_signup_pin_mismatch_rejected(api_client, lagos_area):
         "pin": "2468",
         "confirm_pin": "9999",
         "area": str(lagos_area.id),
-        "lga": "Ikeja",
         "license_number": "ABCDE12",
         "document_type": "nin",
         "document_file": doc,

@@ -87,12 +87,11 @@ class DriverSignupView(generics.CreateAPIView):
                 user=user,
                 full_name=data["full_name"],
                 area=data["area"],
-                lga=data["lga"],
                 phone_number=normalize_phone(data["phone_number"]),
                 license_number=data["license_number"],
                 is_phone_verified=False,
                 verified=False,
-                pin_hash=data["pin"]  
+                pin_hash=data["pin"]
             )
 
             driver_profile.set_pin(data["pin"])
@@ -123,7 +122,7 @@ class DriverSignupView(generics.CreateAPIView):
             'user': UserSerializer(self.user).data,
             'full_name': self.user.driver_profile.full_name,
             'area': self.user.driver_profile.area.name,
-            'lga': self.user.driver_profile.lga,
+            'lga': self.user.driver_profile.area.lga,
             'license_number': self.user.driver_profile.license_number,
             'verified': self.user.driver_profile.verified,
             'message': f'Driver Profile created successfully, your verification otp has been sent',

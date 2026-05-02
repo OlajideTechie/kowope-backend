@@ -13,6 +13,7 @@ from services.complete_registration_service import CompleteRegistrationService
 from .serializers import (
     InviteAgentSerializer, CompleteRegistrationSerializer,
     AgentApprovalSerializer, AgentDashboardSerializer,
+    AgentListSerializer, AgentDetailSerializer,
 )
 from middleware.permissions import IsAdmin, IsAgent
 from services.invite_agent_service import InviteAgentService
@@ -369,7 +370,57 @@ class AdminRevenueView(APIView):
 
 
 # ---------------------------------------------------------------------------
-# Admin Driver List
+# Admin Agent List & Detail
+# ---------------------------------------------------------------------------
+
+@extend_schema(
+    tags=["Admin"],
+    parameters=[
+        OpenApiParameter(
+            name="status",
+            type=str,
+            location=OpenApiParameter.QUERY,
+            description="Filter by agent status: invited, pending_kyc, approved, rejected",
+            required=False,
+        ),
+    ],
+    responses={200: AgentListSerializer(many=True)},
+)
+class AdminAgentListView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request):
+        qs = AgentProfile.objects.select_related("user", "area", "invited_by").order_by("-created_at")
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+
+        serializer = AgentListSerializer(qs, many=True)
+        return Response({"count": qs.count(), "agents": serializer.data})
+
+
+@extend_schema(
+    tags=["Admin"],
+    responses={
+        200: AgentDetailSerializer,
+        404: OpenApiResponse(description="Agent not found"),
+    },
+)
+class AdminAgentDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, agent_id):
+        agent = AgentProfile.objects.select_related("user", "area", "invited_by").filter(id=agent_id).first()
+        if not agent:
+            return Response({"error": "Agent not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AgentDetailSerializer(agent)
+        return Response(serializer.data)
+
+
+# ---------------------------------------------------------------------------
+# Admin Driver List & Detail
 # ---------------------------------------------------------------------------
 
 @extend_schema(
@@ -414,4 +465,26 @@ class AdminDriverListView(APIView):
         ]
 
         return Response({"count": len(drivers), "drivers": drivers})
+
+
+@extend_schema(
+    tags=["Admin"],
+    responses={
+        200: OpenApiResponse(description="Driver profile detail"),
+        404: OpenApiResponse(description="Driver not found"),
+    },
+)
+class AdminDriverDetailView(APIView):
+    permission_classes = [IsAdmin]
+
+    def get(self, request, driver_id):
+        from authentication.models import DriverProfile
+        from authentication.serializers import DriverProfileSerializer
+
+        driver = DriverProfile.objects.select_related("user", "area").filter(id=driver_id).first()
+        if not driver:
+            return Response({"error": "Driver not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = DriverProfileSerializer(driver, context={"request": request})
+        return Response(serializer.data)
 

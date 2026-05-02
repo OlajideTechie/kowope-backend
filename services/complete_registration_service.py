@@ -52,7 +52,6 @@ class CompleteRegistrationService:
         # update agent profile
         agent.full_name = data["full_name"]
         agent.area = data["area"]
-        agent.lga = data["lga"]
         agent.status = "pending_kyc"
         agent.invite_token_used = True
         agent.save()

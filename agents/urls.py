@@ -1,7 +1,9 @@
 from django.urls import path
 from .views import (
     InviteAgentView, CompleteRegistrationView, AgentApprovalView,
-    AgentDashboardView, AdminDashboardView, AdminRevenueView, AdminDriverListView,
+    AgentDashboardView, AdminDashboardView, AdminRevenueView,
+    AdminDriverListView, AdminDriverDetailView,
+    AdminAgentListView, AdminAgentDetailView,
 )
 
 app_name = "agents"
@@ -14,4 +16,7 @@ urlpatterns = [
     path("admin/dashboard", AdminDashboardView.as_view(), name="admin-dashboard"),
     path("admin/revenue", AdminRevenueView.as_view(), name="admin-revenue"),
     path("admin/drivers", AdminDriverListView.as_view(), name="admin-drivers"),
+    path("admin/drivers/<uuid:driver_id>", AdminDriverDetailView.as_view(), name="admin-driver-detail"),
+    path("admin/agents", AdminAgentListView.as_view(), name="admin-agent-list"),
+    path("admin/agents/<uuid:agent_id>", AdminAgentDetailView.as_view(), name="admin-agent-detail"),
 ]

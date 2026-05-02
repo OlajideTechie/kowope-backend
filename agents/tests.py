@@ -17,6 +17,7 @@ DASHBOARD_URL = "/api/v1/agents/dashboard"
 ADMIN_DASHBOARD_URL = "/api/v1/admin/dashboard"
 ADMIN_REVENUE_URL = "/api/v1/admin/revenue"
 ADMIN_DRIVERS_URL = "/api/v1/admin/drivers"
+ADMIN_AGENTS_URL = "/api/v1/admin/agents"
 
 
 # ---------------------------------------------------------------------------
@@ -30,12 +31,12 @@ def api_client():
 
 @pytest.fixture
 def area(db):
-    return Area.objects.create(name="Surulere", state="Lagos")
+    return Area.objects.create(name="Surulere", lga="Surulere", state="Lagos")
 
 
 @pytest.fixture
 def other_area(db):
-    return Area.objects.create(name="Ikeja", state="Lagos")
+    return Area.objects.create(name="Ikeja", lga="Ikeja", state="Lagos")
 
 
 @pytest.fixture
@@ -79,7 +80,6 @@ def driver(db, area):
         user=user,
         full_name="Test Driver",
         area=area,
-        lga="Surulere",
         phone_number="08031112222",
         license_number="LIC12345",
         pin_hash="hashed",
@@ -547,3 +547,128 @@ def test_admin_drivers_response_shape(auth_admin_client, driver):
     assert "area" in d
     assert "verified" in d
     assert "registered_at" in d
+
+
+# ---------------------------------------------------------------------------
+# Admin Driver Detail
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_driver_detail_unauthenticated(api_client, driver):
+    response = api_client.get(f"{ADMIN_DRIVERS_URL}/{driver.id}")
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_driver_detail_non_admin_denied(api_client, driver_user, driver):
+    refresh = RefreshToken.for_user(driver_user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
+    response = api_client.get(f"{ADMIN_DRIVERS_URL}/{driver.id}")
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_driver_detail_returns_profile(auth_admin_client, driver):
+    response = auth_admin_client.get(f"{ADMIN_DRIVERS_URL}/{driver.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["full_name"] == driver.full_name
+    assert data["license_number"] == driver.license_number
+
+
+@pytest.mark.django_db
+def test_admin_driver_detail_not_found(auth_admin_client):
+    response = auth_admin_client.get(f"{ADMIN_DRIVERS_URL}/{uuid.uuid4()}")
+    assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Admin Agent List
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def pending_agent(db, area):
+    user = User.objects.create(email="pending@kowope.com", role="agent", is_active=True)
+    return AgentProfile.objects.create(
+        user=user, area=area, full_name="Pending Agent", status="pending_kyc"
+    )
+
+
+@pytest.mark.django_db
+def test_admin_agent_list_unauthenticated(api_client):
+    response = api_client.get(ADMIN_AGENTS_URL)
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_agent_list_non_admin_denied(api_client, driver_user):
+    refresh = RefreshToken.for_user(driver_user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
+    response = api_client.get(ADMIN_AGENTS_URL)
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_agent_list_returns_all(auth_admin_client, agent, pending_agent):
+    response = auth_admin_client.get(ADMIN_AGENTS_URL)
+    assert response.status_code == 200
+    data = response.json()
+    assert "count" in data
+    assert "agents" in data
+    assert data["count"] >= 2
+
+
+@pytest.mark.django_db
+def test_admin_agent_list_status_filter(auth_admin_client, agent, pending_agent):
+    response = auth_admin_client.get(ADMIN_AGENTS_URL, {"status": "pending_kyc"})
+    assert response.status_code == 200
+    agents = response.json()["agents"]
+    assert all(a["status"] == "pending_kyc" for a in agents)
+
+
+@pytest.mark.django_db
+def test_admin_agent_list_response_shape(auth_admin_client, agent):
+    response = auth_admin_client.get(ADMIN_AGENTS_URL)
+    a = response.json()["agents"][0]
+    assert "id" in a
+    assert "full_name" in a
+    assert "email" in a
+    assert "area" in a
+    assert "lga" in a
+    assert "status" in a
+
+
+# ---------------------------------------------------------------------------
+# Admin Agent Detail
+# ---------------------------------------------------------------------------
+
+@pytest.mark.django_db
+def test_admin_agent_detail_unauthenticated(api_client, agent):
+    response = api_client.get(f"{ADMIN_AGENTS_URL}/{agent.id}")
+    assert response.status_code == 401
+
+
+@pytest.mark.django_db
+def test_admin_agent_detail_non_admin_denied(api_client, driver_user, agent):
+    refresh = RefreshToken.for_user(driver_user)
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {str(refresh.access_token)}")
+    response = api_client.get(f"{ADMIN_AGENTS_URL}/{agent.id}")
+    assert response.status_code == 403
+
+
+@pytest.mark.django_db
+def test_admin_agent_detail_returns_profile(auth_admin_client, agent):
+    response = auth_admin_client.get(f"{ADMIN_AGENTS_URL}/{agent.id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["full_name"] == agent.full_name
+    assert data["email"] == agent.user.email
+    assert data["status"] == agent.status
+    assert "nin_document" in data
+    assert "lga" in data
+
+
+@pytest.mark.django_db
+def test_admin_agent_detail_not_found(auth_admin_client):
+    response = auth_admin_client.get(f"{ADMIN_AGENTS_URL}/{uuid.uuid4()}")
+    assert response.status_code == 404

@@ -26,12 +26,12 @@ def api_client():
 
 @pytest.fixture
 def area(db):
-    return Area.objects.create(name="Surulere", state="Lagos")
+    return Area.objects.create(name="Surulere", lga="Surulere", state="Lagos")
 
 
 @pytest.fixture
 def other_area(db):
-    return Area.objects.create(name="Ikeja", state="Lagos")
+    return Area.objects.create(name="Ikeja", lga="Ikeja", state="Lagos")
 
 
 @pytest.fixture
@@ -41,7 +41,6 @@ def driver(db, area):
         user=user,
         full_name="Test Driver",
         area=area,
-        lga="Surulere",
         phone_number="08031234567",
         license_number="ABCDE1234",
         pin_hash="hashed",
@@ -116,7 +115,6 @@ def test_full_payment_ticket_expire_flow(area):
         user=user,
         full_name="Test Driver",
         area=area,
-        lga="Surulere",
         phone_number=f"080{uuid.uuid4().int % 100000000:08d}",
         license_number=str(uuid.uuid4())[:12],
         pin_hash="hashed_pin_value",
@@ -269,7 +267,6 @@ def test_fallback_validate_no_ticket_today(auth_agent_client):
         user=user,
         full_name="No Ticket Driver",
         area=area,
-        lga="Surulere",
         phone_number="08099999999",
         license_number="ZZZ99999",
         pin_hash="hashed",
