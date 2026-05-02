@@ -34,7 +34,7 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG', 'True') == 'True'
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
@@ -342,13 +342,13 @@ CSRF_COOKIE_SECURE = True
 
 
 # OTP behavior
-USE_STATIC_OTP = False
-STATIC_OTP_CODE = "123456"
+USE_STATIC_OTP = os.getenv("USE_STATIC_OTP", "False") == "True"
+STATIC_OTP_CODE = os.getenv("STATIC_OTP_CODE", "123456")
 
 OTP_EXPIRY_SECONDS = 300  # 5 minutes
 
 # SMS provider toggle
-ENABLE_SMS_PROVIDER = False  # flip when testing real SMS
+ENABLE_SMS_PROVIDER = os.getenv("ENABLE_SMS_PROVIDER", "False") == "True"
 SMS_PROVIDER = "twilio"
 
 # Email provider toggle
@@ -389,7 +389,7 @@ FRONTEND_DOMAIN = os.getenv("FRONTEND_DOMAIN", "http://127.0.0.1:8000")
 
 PENDING_TICKET_EXPIRY_MINUTES = 10
 
-TICKET_AMOUNT = 500
+TICKET_AMOUNT = int(os.getenv("TICKET_AMOUNT", "500"))
 
 PAYSTACK_REDIRECT_URL = os.getenv("PAYSTACK_REDIRECT_URL", "http://127.0.0.1:8000/api/v1/payment/callback")
 

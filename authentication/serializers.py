@@ -102,18 +102,22 @@ class DriverSignupSerializer(serializers.Serializer):
         return value
     
     def validate_phone_number(self, value):
-
-        normalized = normalize_phone(value)
-        if DriverProfile.objects.filter(phone_number=normalized).exists():
-            raise serializers.ValidationError("Phone number already registered.")
-        
         if not value:
             raise serializers.ValidationError("Phone number is required")
         if not value.isdigit():
             raise serializers.ValidationError("Phone number must be numeric")
         if len(value) != 11:
             raise serializers.ValidationError("Phone number must be 11 digits long")
-        return value
+
+        try:
+            normalized = normalize_phone(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid phone number")
+
+        if DriverProfile.objects.filter(phone_number=normalized).exists():
+            raise serializers.ValidationError("Phone number already registered.")
+
+        return normalized
     
     def validate_document_file(self, file):
         return DocumentVerificationService.validate_file(file)

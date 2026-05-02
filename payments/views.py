@@ -7,12 +7,11 @@ from django.shortcuts import get_object_or_404
 
 from .models import Payment
 from authentication.models import DriverProfile
-from .serializers import PaymentInitializeSerializer, PaymentInitializeSerializer
+from .serializers import PurchaseTicketSerializer, PurchaseTicketResponseSerializer, PendingPaymentResponseSerializer
 from ticket.serializers import TicketSerializer
 from utils.task import generate_ticket
 from utils.paystack_signature import verify_paystack_signature
-from drf_spectacular.utils import extend_schema
-from drf_spectacular.utils import OpenApiResponse
+from drf_spectacular.utils import extend_schema, OpenApiResponse
 from datetime import time, timedelta
 
 from services.paystack import PaystackService
@@ -28,12 +27,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-@extend_schema(tags=["Payments"],)
-class InitializePaymentView(APIView):
-    serializer_class = PaymentInitializeSerializer
+@extend_schema(
+    tags=["Payments"],
+    summary="Purchase a ticket",
+    description="Initiates a Paystack payment to purchase a daily road-use ticket. Returns an authorization URL to redirect the driver to complete payment.",
+    request=None,
+    responses={
+        200: OpenApiResponse(
+            description="Payment initiated successfully.",
+            response=PurchaseTicketResponseSerializer,
+        ),
+        202: OpenApiResponse(
+            description="Driver already has a pending payment within the expiry window.",
+            response=PendingPaymentResponseSerializer,
+        ),
+        400: OpenApiResponse(
+            description="Validation error or payment window closed.",
+        ),
+    }
+)
+class PurchaseTicketView(APIView):
+    serializer_class = PurchaseTicketSerializer
     permission_classes = [IsDriver]
+    
+    # PAYMENT_CUTOFF: no new payments can be initiated after this time each day, 
+    # ensuring ticket generation completes before cutoff and preventing late attempts that may not be fulfilled.
+    PAYMENT_CUTOFF = time(22, 0)
 
-    PAYMENT_CUTOFF = time(22, 0)  # 10 PM
+    # PENDING_EXPIRY: if a pending payment exists, it will be valid for this duration before expiring and allowing a new one
+    # this prevents users from spamming payment attempts while ensuring they can retry after a reasonable time if something goes wrong.
     PENDING_EXPIRY = timedelta(minutes=settings.PENDING_TICKET_EXPIRY_MINUTES)
 
     def is_before_cutoff(self):
@@ -45,7 +67,8 @@ class InitializePaymentView(APIView):
         return now <= self.PAYMENT_CUTOFF
 
     def post(self, request):
-        # Lazy ticket expiration
+        # Lazy ticket expiration when initiating payment, 
+        # ensuring we don't run this expensive operation on every request but still keep the system clean.
         expire_old_tickets_once_per_day()
 
         if not self.is_before_cutoff():
@@ -54,7 +77,7 @@ class InitializePaymentView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         
-        serializer = PaymentInitializeSerializer(
+        serializer = PurchaseTicketSerializer(
             data=request.data,
             context={"request": request}
         )
@@ -66,7 +89,10 @@ class InitializePaymentView(APIView):
         # Fixed ticket amount
         amount = settings.TICKET_AMOUNT
         
-        # Check for existing pending payment
+        # Check for existing pending payment and 
+        # expire if too old, otherwise return existing pending payment
+        # info to prevent multiple pending payments for same driver
+        # as long as the payment is not expired.
         pending_payment = Payment.objects.filter(
             driver=driver,
             status=Payment.Status.PENDING
@@ -78,7 +104,7 @@ class InitializePaymentView(APIView):
 
            # Expire old pending payment
             if timezone.now() > expiry_time:
-                pending_payment.status = Payment.Status.FAILED
+                pending_payment.status = Payment.Status.EXPIRED
                 pending_payment.save(update_fields=["status"])
 
             else: 
