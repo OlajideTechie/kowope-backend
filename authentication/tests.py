@@ -288,6 +288,37 @@ def test_resend_otp_accepts_e164_format(api_client, create_user):
 
 
 # -------------------------------
+# Token Refresh Tests
+# -------------------------------
+
+REFRESH_URL = "/api/v1/auth/token/refresh"
+
+
+@pytest.mark.django_db
+def test_cookie_token_refresh_rotates_cookie(api_client, create_user):
+    user = create_user(LOCAL_PHONE, pin="2468")
+    login_resp = api_client.post(
+        "/api/v1/auth/driver/login",
+        {"phone_number": user.phone_number, "pin": "2468"},
+        format="json",
+    )
+    original_refresh = login_resp.cookies["refresh_token"].value
+    api_client.cookies["refresh_token"] = original_refresh
+
+    refresh_resp = api_client.post(REFRESH_URL)
+    assert refresh_resp.status_code == 200
+    assert "access_token" in refresh_resp.cookies
+    assert "refresh_token" in refresh_resp.cookies
+    assert refresh_resp.cookies["refresh_token"].value != original_refresh
+
+
+@pytest.mark.django_db
+def test_cookie_token_refresh_no_cookie_returns_401(api_client):
+    response = api_client.post(REFRESH_URL)
+    assert response.status_code == 401
+
+
+# -------------------------------
 # Login Tests
 # -------------------------------
 
@@ -306,10 +337,55 @@ def test_login_flow(api_client, create_user, pin, expected_success):
     if expected_success:
         assert response.status_code == 200
         assert response.json()["success"] is True
-        assert "access_token" in response.json()["result"]
-        assert "refresh_token" in response.json()["result"]
+        assert "access_token" in response.cookies
+        assert "refresh_token" in response.cookies
+        assert response.cookies["access_token"]["httponly"]
+        assert response.cookies["refresh_token"]["httponly"]
+        assert "access_token" not in response.json()["result"]
+        assert "refresh_token" not in response.json()["result"]
+        assert "expires_in" in response.json()["result"]
     else:
         assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_driver_profile_accessible_via_cookie(api_client, create_user):
+    """Login sets cookies; follow-up authenticated request via cookie succeeds."""
+    user = create_user(LOCAL_PHONE, pin="2468")
+    login_resp = api_client.post(
+        "/api/v1/auth/driver/login",
+        {"phone_number": user.phone_number, "pin": "2468"},
+        format="json",
+    )
+    assert login_resp.status_code == 200
+    api_client.cookies["access_token"] = login_resp.cookies["access_token"].value
+    profile_resp = api_client.get("/api/v1/auth/driver/me")
+    assert profile_resp.status_code == 200
+
+
+@pytest.mark.django_db
+def test_logout_clears_cookies(api_client, create_user):
+    user = create_user(LOCAL_PHONE, pin="2468")
+    login_resp = api_client.post(
+        "/api/v1/auth/driver/login",
+        {"phone_number": user.phone_number, "pin": "2468"},
+        format="json",
+    )
+    api_client.cookies["access_token"]  = login_resp.cookies["access_token"].value
+    api_client.cookies["refresh_token"] = login_resp.cookies["refresh_token"].value
+
+    logout_resp = api_client.post("/api/v1/auth/driver/logout")
+    assert logout_resp.status_code == 200
+    assert logout_resp.cookies["access_token"].value == ""
+    assert logout_resp.cookies["refresh_token"].value == ""
+
+
+@pytest.mark.django_db
+def test_logout_without_cookie_returns_200(api_client):
+    """AllowAny + no cookie → graceful 200, not 401."""
+    response = api_client.post("/api/v1/auth/driver/logout")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
 
 
 @pytest.mark.django_db
@@ -460,17 +536,18 @@ class TestStaffLoginSerializer:
 @pytest.mark.django_db
 class TestAdminLoginView:
 
-    def test_admin_login_returns_tokens(self, api_client, admin_user):
+    def test_admin_login_sets_cookies(self, api_client, admin_user):
         response = api_client.post(
             ADMIN_LOGIN_URL,
             {"email": "admin@kowope.com", "password": "adminpass123"},
             format="json",
         )
         assert response.status_code == 200
-        result = response.json()["result"]
-        assert "access_token" in result
-        assert "refresh_token" in result
-        assert "expires_in" in result
+        assert "access_token" in response.cookies
+        assert "refresh_token" in response.cookies
+        assert response.cookies["access_token"]["httponly"]
+        assert "access_token" not in response.json()["result"]
+        assert "expires_in" in response.json()["result"]
 
     def test_admin_login_returns_correct_level(self, api_client, admin_user):
         response = api_client.post(
@@ -535,17 +612,18 @@ class TestAdminLoginView:
 @pytest.mark.django_db
 class TestAgentLoginView:
 
-    def test_agent_login_returns_tokens(self, api_client, agent_user):
+    def test_agent_login_sets_cookies(self, api_client, agent_user):
         response = api_client.post(
             AGENT_LOGIN_URL,
             {"email": "agent@kowope.com", "password": "agentpass123"},
             format="json",
         )
         assert response.status_code == 200
-        result = response.json()["result"]
-        assert "access_token" in result
-        assert "refresh_token" in result
-        assert "expires_in" in result
+        assert "access_token" in response.cookies
+        assert "refresh_token" in response.cookies
+        assert response.cookies["access_token"]["httponly"]
+        assert "access_token" not in response.json()["result"]
+        assert "expires_in" in response.json()["result"]
 
     def test_agent_login_returns_profile_status(self, api_client, agent_user):
         response = api_client.post(

@@ -190,28 +190,6 @@ class StaffLoginSerializer(serializers.Serializer):
         return user
 
 
-class DriverLogoutSerializer(serializers.Serializer):
-    refresh_token = serializers.CharField()
-
-    def validate(self, data):
-        if not data.get("refresh_token"):
-            raise serializers.ValidationError("Refresh token is required")
-        if not isinstance(data["refresh_token"], str):
-            raise serializers.ValidationError("Refresh token must be a string")
-        if len(data["refresh_token"].strip()) == 0:
-            raise serializers.ValidationError("Refresh token cannot be empty")
-        if len(data["refresh_token"]) > 500:
-            raise serializers.ValidationError("Refresh token is too long")
-        if len(data["refresh_token"]) < 10:
-            raise serializers.ValidationError("Refresh token is too short")
-        if not data["refresh_token"].startswith("eyJ"):  # Basic check for JWT format
-            raise serializers.ValidationError("Invalid refresh token format")
-        if " " in data["refresh_token"]:
-            raise serializers.ValidationError("Refresh token cannot contain spaces")
-        if not all(c.isalnum() or c in ['.', '_', '-'] for c in data["refresh"]):
-            raise serializers.ValidationError("Refresh token contains invalid characters")
-        return data
-    
 
 class VerifyOTPSerializer(serializers.Serializer):
     phone_number = serializers.CharField()
