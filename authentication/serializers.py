@@ -244,22 +244,20 @@ class ResendOTPSerializer(serializers.Serializer):
     phone_number = serializers.CharField()
 
     def validate_phone_number(self, value):
-        normalized_phone = normalize_phone(value)
-
-        # Try to get the driver profile directly
-        driver_profile = DriverProfile.objects.filter(phone_number=normalized_phone).first()
-
         if not value.isdigit():
             raise serializers.ValidationError("Phone number must be numeric")
         if len(value) != 11:
-             raise serializers.ValidationError("Phone number must be 11 digits long")
+            raise serializers.ValidationError("Phone number must be 11 digits long")
+
+        normalized_phone = normalize_phone(value)
+        driver_profile = DriverProfile.objects.filter(phone_number=normalized_phone).first()
+
         if not driver_profile:
             raise serializers.ValidationError("No driver profile found with this phone number")
         if driver_profile.is_phone_verified:
             raise serializers.ValidationError("Phone number is already verified")
-        
-        self.driver_profile = driver_profile
 
+        self.driver_profile = driver_profile
         return value
 
 

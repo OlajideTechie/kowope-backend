@@ -283,8 +283,14 @@ class VerifyOTPView(APIView):
             )
 
         try:
-            user = User.objects.get(phone_number=(phone_number))
+            user = User.objects.get(phone_number=phone_number)
+        except User.DoesNotExist:
+            return Response(
+                {"success": False, "message": "No account found for this phone number. Please register first."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
+        try:
             driver_profile = user.driver_profile
 
             if driver_profile.is_phone_verified:
@@ -294,7 +300,6 @@ class VerifyOTPView(APIView):
                 )
             
             # Mark phone as verified and user as verified if not already verified
-            driver_profile = user.driver_profile
             driver_profile.is_phone_verified = True
             driver_profile.verified = True
             driver_profile.save(update_fields=["is_phone_verified", "verified"])
@@ -344,7 +349,7 @@ class VerifyOTPView(APIView):
     }
 )
 class ResendOTPView(APIView):
-    permission_classes = [IsDriver]
+    permission_classes = [permissions.AllowAny]
     serializer_class = ResendOTPSerializer
 
     throttle_classes = [ScopedRateThrottle]
