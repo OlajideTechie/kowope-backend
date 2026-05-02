@@ -11,7 +11,6 @@ from urllib3 import Retry
 from authentication.models import OTP, User, DriverProfile
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from drf_spectacular.types import OpenApiTypes
-from utils.phone import normalize_phone
 from django.contrib.auth.hashers import make_password, check_password
 from rest_framework.throttling import ScopedRateThrottle
 from django.core.cache import cache
@@ -87,7 +86,7 @@ class DriverSignupView(generics.CreateAPIView):
                 user=user,
                 full_name=data["full_name"],
                 area=data["area"],
-                phone_number=normalize_phone(data["phone_number"]),
+                phone_number=data["phone_number"],
                 license_number=data["license_number"],
                 is_phone_verified=False,
                 verified=False,

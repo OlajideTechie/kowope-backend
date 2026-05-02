@@ -62,6 +62,11 @@ class User(AbstractBaseUser, PermissionsMixin):
     """
     String representation of the user model
     """
+    def save(self, *args, **kwargs):
+        if self.phone_number:
+            self.phone_number = normalize_phone(self.phone_number)
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.role} | {self.phone_number or self.email}"
 
