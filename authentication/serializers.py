@@ -224,8 +224,11 @@ class VerifyOTPSerializer(serializers.Serializer):
         if not value.isdigit():
             raise serializers.ValidationError("Phone number must be numeric")
         if len(value) != 11:
-             raise serializers.ValidationError("Phone number must be 11 digits long")
-        return value
+            raise serializers.ValidationError("Phone number must be 11 digits long")
+        try:
+            return normalize_phone(value)
+        except ValueError:
+            raise serializers.ValidationError("Invalid phone number")
     
     def validate_code(self, value):
         if not value:
