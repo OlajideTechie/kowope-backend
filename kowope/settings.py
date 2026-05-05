@@ -334,17 +334,24 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
     "x-requested-with",
 ]
 
+
+if DEBUG:
+    SESSION_COOKIE_SECURE = False
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    CSRF_COOKIE_SECURE = False
+    CSRF_COOKIE_SAMESITE = "Lax"
+
+else:
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_SAMESITE = "None"
+
+    CSRF_COOKIE_SECURE = True
+    CSRF_COOKIE_SAMESITE = "None"
+
 CORS_ALLOW_CREDENTIALS = True
-
-SESSION_COOKIE_SECURE = True
-
-SESSION_COOKIE_SAMESITE = "None"
-
-CSRF_COOKIE_SAMESITE = "None"
-
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS", "http://localhost:3000").split(",")
 
-CSRF_COOKIE_SECURE = True
 
 
 # OTP behavior
