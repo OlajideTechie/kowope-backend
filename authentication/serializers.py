@@ -261,6 +261,7 @@ class ResetPinSerializer(serializers.Serializer):
     phone_number = serializers.CharField(required=True)
     otp_code = serializers.CharField(required=False)
     new_pin = serializers.CharField(required=False)
+    confirm_pin = serializers.CharField(required=False)
 
     def validate_phone_number(self, value):
         return normalize_phone(value)
@@ -271,22 +272,32 @@ class ResetPinSerializer(serializers.Serializer):
                 raise serializers.ValidationError("PIN must be a 4-digit number.")
             if value in WEAK_PINS:
                 raise serializers.ValidationError("New pin is too weak. Please choose a stronger pin.")
-            
+        return value
+
+    def validate_confirm_pin(self, value):
+        if value:
+            if not value.isdigit() or len(value) != 4:
+                raise serializers.ValidationError("Confirm PIN must be a 4-digit number.")
         return value
 
     def validate(self, attrs):
         otp_code = attrs.get("otp_code")
         new_pin = attrs.get("new_pin")
+        confirm_pin = attrs.get("confirm_pin")
 
-        is_initiation = otp_code is None and new_pin is None
-        is_completion = otp_code is not None or new_pin is not None
+        is_initiation = otp_code is None and new_pin is None and confirm_pin is None
+        is_completion = otp_code is not None or new_pin is not None or confirm_pin is not None
 
-        # If completing reset, both must be present
+        # If completing reset, all fields must be present
         if is_completion:
             if not otp_code:
                 raise serializers.ValidationError({"otp_code": "OTP is required."})
             if not new_pin:
                 raise serializers.ValidationError({"new_pin": "New PIN is required."})
+            if not confirm_pin:
+                raise serializers.ValidationError({"confirm_pin": "Confirm PIN is required."})
+            if new_pin != confirm_pin:
+                raise serializers.ValidationError({"confirm_pin": "New PIN and confirm PIN must match."})
 
         return attrs
     

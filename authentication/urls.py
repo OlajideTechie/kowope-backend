@@ -23,7 +23,7 @@ urlpatterns = [
    path('driver/verify-otp', VerifyOTPView.as_view(), name='verify-otp'),
    path('driver/change-pin', ChangePinView.as_view(), name='change-pin'),
 
-   path('driver/reset-pin', ResetPinView.as_view(), name='reset-pin'),
+   path('driver/forgot-pin', ResetPinView.as_view(), name='forgot-pin'),
    path('driver/resend-otp', ResendOTPView.as_view(), name='resend-otp'),
    path('driver/me', DriverProfileView.as_view(), name='driver-profile'),
 
