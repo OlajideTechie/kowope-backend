@@ -1,6 +1,6 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
-from utils.cookies import ACCESS_COOKIE
+from utils.cookies import REFRESH_COOKIE
 
 
 class CookieJWTAuthentication(JWTAuthentication):
@@ -11,7 +11,7 @@ class CookieJWTAuthentication(JWTAuthentication):
     """
 
     def authenticate(self, request):
-        raw_token = request.COOKIES.get(ACCESS_COOKIE)
+        raw_token = request.COOKIES.get(REFRESH_COOKIE)
 
         if raw_token:
             try:

@@ -34,7 +34,7 @@ from authentication.models import AdminProfile, AgentProfile
 from services.sms_service import SMSService
 from services.otp_service import OTPService
 from middleware.permissions import IsDriver, IsAdmin, IsAgent
-from utils.cookies import set_auth_cookies, clear_auth_cookies, REFRESH_COOKIE
+from utils.cookies import set_refresh_cookie, clear_auth_cookies, REFRESH_COOKIE
 
 
 import logging
@@ -174,15 +174,17 @@ class DriverLoginView(APIView):
         response = Response({
             "success": True,
             "result": {
+                "access_token": str(access_token),
                 'user': UserSerializer(user).data,
                 'full_name': user.driver_profile.full_name,
                 'expires_in': expires_in.total_seconds(),
             }
         }, status=status.HTTP_200_OK)
-        set_auth_cookies(response, str(access_token), str(refresh))
+        set_refresh_cookie(response, str(refresh))
+        
         return response
     
-
+        
 @extend_schema(
     tags=["Driver Authentication"],
     responses={
@@ -194,16 +196,29 @@ class DriverLogoutView(APIView):
 
     def post(self, request):
         refresh_token = request.COOKIES.get(REFRESH_COOKIE)
-        if refresh_token:
-            try:
-                RefreshToken(refresh_token).blacklist()
-            except Exception:
-                pass  # already blacklisted or invalid — still proceed
 
-        response = Response({
-            "success": True,
-            "message": "You have been logged out successfully"
-        }, status=status.HTTP_200_OK)
+        response = Response(
+            {
+                "success": True,
+                "message": "You have been logged out successfully"
+            },
+            status=status.HTTP_200_OK
+        )
+
+        # Case 1: No refresh token in cookie
+        if not refresh_token:
+            logger.info("Logout called without refresh token cookie")
+            clear_auth_cookies(response)
+            return response
+
+        # Case 2: Try blacklist if token exists
+        try:
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            logger.info("Refresh token successfully blacklisted during logout")
+        except Exception as e:
+            logger.warning(f"Logout blacklist failed: {str(e)}")
+
         clear_auth_cookies(response)
         return response
         
@@ -297,7 +312,10 @@ class VerifyOTPView(APIView):
                 },
                 status=status.HTTP_200_OK
             )
-            set_auth_cookies(response, str(access_token), str(refresh_token))
+            response.data["result"]["access_token"] = str(access_token)
+            
+            set_refresh_cookie(response, str(refresh_token))
+            
             return response
 
         except ValueError as e:
@@ -571,7 +589,9 @@ class AdminLoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-        set_auth_cookies(response, str(access_token), str(refresh))
+        response.data["result"]["access_token"] = str(access_token)
+        set_refresh_cookie(response, str(refresh))
+      
         return response
 
 
@@ -624,7 +644,10 @@ class AgentLoginView(APIView):
             },
             status=status.HTTP_200_OK,
         )
-        set_auth_cookies(response, str(access_token), str(refresh))
+        response.data["result"]["access_token"] = str(access_token)
+        
+        set_refresh_cookie(response, str(refresh))
+        
         return response
 
 
@@ -640,8 +663,9 @@ class CookieTokenRefreshView(APIView):
         refresh_token = request.COOKIES.get(REFRESH_COOKIE)
 
         if not refresh_token:
-            return Response(
-                {"success": False, "message": "Session expired. Please log in again."},
+            return Response({
+                "success": False, 
+                "message": "Session expired. Please log in again."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
@@ -649,16 +673,23 @@ class CookieTokenRefreshView(APIView):
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError:
-            response = Response(
-                {"success": False, "message": "Session expired. Please log in again."},
+            response = Response({
+                "success": False, 
+                "message": "Session expired. Please log in again."},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+            
             clear_auth_cookies(response)
             return response
 
         new_access = serializer.validated_data["access"]
         new_refresh = serializer.validated_data.get("refresh", refresh_token)
 
-        response = Response({"success": True}, status=status.HTTP_200_OK)
-        set_auth_cookies(response, new_access, new_refresh)
+        response = Response({
+            "success": True, 
+            "access_token": str(new_access),
+           }, status=status.HTTP_200_OK)
+        
+        set_refresh_cookie(response, str(new_refresh))
+       
         return response

@@ -307,7 +307,7 @@ def test_cookie_token_refresh_rotates_cookie(api_client, create_user):
 
     refresh_resp = api_client.post(REFRESH_URL)
     assert refresh_resp.status_code == 200
-    assert "access_token" in refresh_resp.cookies
+    assert "access_token" in refresh_resp.json()
     assert "refresh_token" in refresh_resp.cookies
     assert refresh_resp.cookies["refresh_token"].value != original_refresh
 
@@ -337,11 +337,9 @@ def test_login_flow(api_client, create_user, pin, expected_success):
     if expected_success:
         assert response.status_code == 200
         assert response.json()["success"] is True
-        assert "access_token" in response.cookies
         assert "refresh_token" in response.cookies
-        assert response.cookies["access_token"]["httponly"]
         assert response.cookies["refresh_token"]["httponly"]
-        assert "access_token" not in response.json()["result"]
+        assert "access_token" in response.json()["result"]
         assert "refresh_token" not in response.json()["result"]
         assert "expires_in" in response.json()["result"]
     else:
@@ -350,7 +348,7 @@ def test_login_flow(api_client, create_user, pin, expected_success):
 
 @pytest.mark.django_db
 def test_driver_profile_accessible_via_cookie(api_client, create_user):
-    """Login sets cookies; follow-up authenticated request via cookie succeeds."""
+    """Login returns access_token in response; follow-up authenticated request via header succeeds."""
     user = create_user(LOCAL_PHONE, pin="2468")
     login_resp = api_client.post(
         "/api/v1/auth/driver/login",
@@ -358,7 +356,10 @@ def test_driver_profile_accessible_via_cookie(api_client, create_user):
         format="json",
     )
     assert login_resp.status_code == 200
-    api_client.cookies["access_token"] = login_resp.cookies["access_token"].value
+    # Client can use the access_token from response for authenticated requests
+    access_token = login_resp.json()["result"]["access_token"]
+    # Set it in Authorization header for subsequent requests
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
     profile_resp = api_client.get("/api/v1/auth/driver/me")
     assert profile_resp.status_code == 200
 
@@ -371,12 +372,10 @@ def test_logout_clears_cookies(api_client, create_user):
         {"phone_number": user.phone_number, "pin": "2468"},
         format="json",
     )
-    api_client.cookies["access_token"]  = login_resp.cookies["access_token"].value
     api_client.cookies["refresh_token"] = login_resp.cookies["refresh_token"].value
 
     logout_resp = api_client.post("/api/v1/auth/driver/logout")
     assert logout_resp.status_code == 200
-    assert logout_resp.cookies["access_token"].value == ""
     assert logout_resp.cookies["refresh_token"].value == ""
 
 
@@ -543,10 +542,9 @@ class TestAdminLoginView:
             format="json",
         )
         assert response.status_code == 200
-        assert "access_token" in response.cookies
         assert "refresh_token" in response.cookies
-        assert response.cookies["access_token"]["httponly"]
-        assert "access_token" not in response.json()["result"]
+        assert response.cookies["refresh_token"]["httponly"]
+        assert "access_token" in response.json()["result"]
         assert "expires_in" in response.json()["result"]
 
     def test_admin_login_returns_correct_level(self, api_client, admin_user):
@@ -619,10 +617,9 @@ class TestAgentLoginView:
             format="json",
         )
         assert response.status_code == 200
-        assert "access_token" in response.cookies
         assert "refresh_token" in response.cookies
-        assert response.cookies["access_token"]["httponly"]
-        assert "access_token" not in response.json()["result"]
+        assert response.cookies["refresh_token"]["httponly"]
+        assert "access_token" in response.json()["result"]
         assert "expires_in" in response.json()["result"]
 
     def test_agent_login_returns_profile_status(self, api_client, agent_user):
