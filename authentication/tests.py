@@ -410,7 +410,7 @@ def test_reset_pin_flow(api_client, create_user, generate_otp):
     # Phase 1: initiate — just phone number
     with patch("services.sms_service.SMSService.send_otp"):
         response = api_client.post(
-            "/api/v1/auth/driver/reset-pin",
+            "/api/v1/auth/driver/forgot-pin",
             {"phone_number": LOCAL_PHONE},
             format="json",
         )
@@ -421,8 +421,8 @@ def test_reset_pin_flow(api_client, create_user, generate_otp):
 
     # Phase 2: verify OTP + set new PIN
     response = api_client.post(
-        "/api/v1/auth/driver/reset-pin",
-        {"phone_number": LOCAL_PHONE, "otp_code": otp.code, "new_pin": "5867"},
+        "/api/v1/auth/driver/forgot-pin",
+        {"phone_number": LOCAL_PHONE, "otp_code": otp.code, "new_pin": "5867", "confirm_pin": "5867"},
         format="json",
     )
     assert response.status_code == 200

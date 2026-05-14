@@ -497,8 +497,6 @@ class ResetPinView(APIView):
             status=status.HTTP_200_OK
         )
 
-
-
 """API View to retrieve the authenticated driver's profile information"""
 
 @extend_schema(

@@ -98,7 +98,7 @@ To fetch the dropdown list: `GET /api/v1/areas` (public)
 | POST | `/api/v1/auth/driver/login` | Public | Driver login (phone + PIN) |
 | POST | `/api/v1/auth/driver/verify-otp` | Public | OTP phone verification |
 | POST | `/api/v1/auth/driver/resend-otp` | Driver | Resend OTP |
-| POST | `/api/v1/auth/driver/reset-pin` | Public | Reset driver PIN |
+| POST | `/api/v1/auth/driver/forgot-pin` | Public | Forgot driver PIN |
 | POST | `/api/v1/auth/driver/logout` | Driver | Logout |
 | GET  | `/api/v1/auth/driver/me` | Driver | Driver profile |
 
