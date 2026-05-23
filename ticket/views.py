@@ -154,20 +154,19 @@ class TicketDashboardView(APIView):
         driver = request.user.driver_profile
         today = timezone.localdate()
 
-        # Get active ticket
+        # Get active ticket (only today's active ticket)
         active_ticket = Ticket.objects.filter(
             driver=driver,
             status=Ticket.Status.ACTIVE,
             valid_for_date=today
         ).first()
 
-        # Get last 7 days history (excluding today)
-        start_date = today - timedelta(days=7)
+        # Get recent tickets: last 7 days + today, both active and inactive
+        start_date = today - timedelta(days=6)
 
         recent_tickets = Ticket.objects.filter(
             driver=driver,
-            valid_for_date__gte=start_date,
-            valid_for_date__lt=today
+            valid_for_date__gte=start_date
         ).order_by("-valid_for_date")
 
         return Response({
