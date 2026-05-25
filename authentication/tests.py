@@ -380,6 +380,30 @@ def test_logout_clears_cookies(api_client, create_user):
 
 
 @pytest.mark.django_db
+def test_logout_blacklists_refresh_token_when_cookie_missing(api_client, create_user):
+    user = create_user(LOCAL_PHONE, pin="2468")
+    login_resp = api_client.post(
+        "/api/v1/auth/driver/login",
+        {"phone_number": user.phone_number, "pin": "2468"},
+        format="json",
+    )
+    original_refresh = login_resp.cookies["refresh_token"].value
+
+    api_client.cookies.clear()
+    logout_resp = api_client.post(
+        "/api/v1/auth/driver/logout",
+        {"refresh": original_refresh},
+        format="json",
+    )
+    assert logout_resp.status_code == 200
+
+    api_client.cookies["refresh_token"] = original_refresh
+    refresh_resp = api_client.post(REFRESH_URL)
+    assert refresh_resp.status_code == 401
+    assert refresh_resp.json()["message"] == "Session expired. Please log in again."
+
+
+@pytest.mark.django_db
 def test_logout_without_cookie_returns_200(api_client):
     """AllowAny + no cookie → graceful 200, not 401."""
     response = api_client.post("/api/v1/auth/driver/logout")
