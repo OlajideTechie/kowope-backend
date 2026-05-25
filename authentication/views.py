@@ -195,7 +195,10 @@ class DriverLogoutView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
-        refresh_token = request.COOKIES.get(REFRESH_COOKIE)
+        refresh_token = (
+            request.COOKIES.get(REFRESH_COOKIE)
+            or request.data.get("refresh")
+        )
 
         response = Response(
             {
@@ -205,13 +208,11 @@ class DriverLogoutView(APIView):
             status=status.HTTP_200_OK
         )
 
-        # Case 1: No refresh token in cookie
         if not refresh_token:
-            logger.info("Logout called without refresh token cookie")
+            logger.info("Logout called without refresh token cookie or refresh payload")
             clear_auth_cookies(response)
             return response
 
-        # Case 2: Try blacklist if token exists
         try:
             token = RefreshToken(refresh_token)
             token.blacklist()

@@ -10,12 +10,16 @@ def set_refresh_cookie(response, refresh_token: str) -> None:
         httponly=True,
         secure=settings.SESSION_COOKIE_SECURE,
         samesite=settings.SESSION_COOKIE_SAMESITE,
-        path="/api/v1/auth/token/refresh",
+        path="/api/v1/auth/",
     )
 
-
+"""Utility functions for managing authentication cookies in the Kowope backend."""
 def clear_auth_cookies(response) -> None:
     response.delete_cookie(
         REFRESH_COOKIE,
-        path="/"
+        path="/api/v1/auth/",
+    )
+    response.delete_cookie(
+        REFRESH_COOKIE,
+        path="/",
     )
