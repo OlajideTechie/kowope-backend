@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.db import transaction, IntegrityError
 
 from .models import Payment
 from authentication.models import DriverProfile
@@ -197,70 +198,164 @@ class PaystackWebhookView(APIView):
         try:
             if not verify_paystack_signature(request):
                 logger.warning("Invalid Paystack signature")
-                return Response({"error": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"error": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         except Exception as e:
             logger.exception(f"Signature verification failed: {e}")
-            return Response({"error": "Signature verification failed"}, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response({"error": "Signature verification failed"}, status=status.HTTP_400_BAD_REQUEST
+            )
 
         # --- Step 2: Parse JSON payload ---
         try:
             event = json.loads(request.body)
+
         except Exception as e:
             logger.exception(f"Failed to parse webhook payload: {e}")
-            return Response(status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(
+                {"error": "Invalid payload"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # --- Step 3: Only handle charge.success events ---
         event_type = event.get("event")
+
         if event_type != "charge.success":
             logger.info(f"Ignored event type: {event_type}")
+
             return Response(status=status.HTTP_200_OK)
 
         reference = event.get("data", {}).get("reference")
+
         if not reference:
             logger.warning("Webhook event missing payment reference")
+
             return Response(status=status.HTTP_200_OK)
 
-        # --- Step 4: Fetch payment record ---
-        payment = Payment.objects.filter(reference=reference).first()
-        if not payment:
-            logger.warning(f"No payment found for reference {reference}")
-            return Response(status=status.HTTP_200_OK)
-
-        # Idempotency check: skip if already SUCCESS
-        if payment.status == Payment.Status.SUCCESS:
-            logger.info(f"Payment already marked SUCCESS for reference {reference}")
-            return Response(status=status.HTTP_200_OK)
-
-        # --- Step 5: Verify payment with Paystack API ---
+        # ---------------------------------------------------
+        # STEP 4: Verify payment with Paystack
+        # ---------------------------------------------------
         try:
             verification = PaystackService.verify_payment(reference)
+
         except Exception as e:
-            logger.exception(f"Paystack verification failed for {reference}: {e}")
-            return Response(status=status.HTTP_200_OK)  # Avoid payment retries
+            logger.exception(
+                f"Paystack verification failed for {reference}: {e}"
+            )
+
+            # Return 200 to avoid unnecessary webhook retries
+            return Response(status=status.HTTP_200_OK)
 
         payment_data = verification.get("data", {})
-        if payment_data.get("status") == "success":
-            try:
-                # Update payment record
+
+        if payment_data.get("status") != "success":
+            logger.warning(
+                f"Verification returned non-success for {reference}"
+            )
+
+            Payment.objects.filter(reference=reference).update(
+                status=Payment.Status.FAILED
+            )
+
+            return Response(status=status.HTTP_200_OK)
+
+         # ---------------------------------------------------
+        # STEP 5: Atomic payment update + ticket generation
+        # ---------------------------------------------------
+        try:
+
+            with transaction.atomic():
+
+                payment = (
+                    Payment.objects
+                    .select_for_update()
+                    .filter(reference=reference)
+                    .first()
+                )
+
+                if not payment:
+                    logger.warning(
+                        f"No payment found for reference {reference}"
+                    )
+
+                    return Response(status=status.HTTP_200_OK)
+
+                # -------------------------------------------
+                # IDEMPOTENCY CHECK
+                # -------------------------------------------
+                if payment.status == Payment.Status.SUCCESS:
+                    logger.info(
+                        f"Payment already processed: {reference}"
+                    )
+
+                    return Response(status=status.HTTP_200_OK)
+
+                # -------------------------------------------
+                # PREVENT DUPLICATE SUCCESS PAYMENTS
+                # -------------------------------------------
+                existing_success = Payment.objects.filter(
+                    driver=payment.driver,
+                    payment_date=payment.payment_date,
+                    status=Payment.Status.SUCCESS
+                ).exclude(id=payment.id).exists()
+
+                if existing_success:
+                    logger.warning(
+                        f"Duplicate successful payment attempt "
+                        f"for driver={payment.driver_id}, "
+                        f"date={payment.payment_date}"
+                    )
+
+                    payment.status = Payment.Status.FAILED
+                    payment.save(update_fields=["status"])
+
+                    return Response(status=status.HTTP_200_OK)
+
+                # -------------------------------------------
+                # MARK PAYMENT SUCCESS
+                # -------------------------------------------
                 payment.status = Payment.Status.SUCCESS
                 payment.channel = payment_data.get("channel")
                 payment.gateway_response = verification
                 payment.paid_at = payment_data.get("paid_at")
-                payment.save(update_fields=["status", "channel", "gateway_response", "paid_at"])
 
-                # Trigger ticket generation safely
-                try:
-                    generate_ticket(payment.id)
-                except Exception as e:
-                    logger.exception(f"Ticket generation failed for payment {reference}: {e}")
+                payment.save(update_fields=[
+                    "status",
+                    "channel",
+                    "gateway_response",
+                    "paid_at",
+                ])
 
-            except Exception as e:
-                logger.exception(f"Failed to update payment {reference}: {e}")
-        else:
-            # Payment not successful
-            payment.status = Payment.Status.FAILED
-            payment.save(update_fields=["status"])
-            logger.info(f"Payment failed for reference {reference}")
+                # -------------------------------------------
+                # GENERATE TICKET SAFELY
+                # -------------------------------------------
+                ticket = generate_ticket(payment.id)
+
+                logger.info(
+                    f"Payment processed successfully: "
+                    f"reference={reference}, "
+                    f"ticket_id={getattr(ticket, 'id', None)}"
+                )
+
+        except IntegrityError as e:
+
+            logger.exception(
+                f"Integrity error processing payment "
+                f"{reference}: {e}"
+            )
+
+            return Response(status=status.HTTP_200_OK)
+
+        except Exception as e:
+
+            logger.exception(
+                f"Unexpected webhook processing error "
+                f"for {reference}: {e}"
+            )
+
+            return Response(status=status.HTTP_200_OK)
 
         return Response(status=status.HTTP_200_OK)
     

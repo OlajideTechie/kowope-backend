@@ -31,6 +31,7 @@ def generate_ticket(payment_id):
 
     lock_key = f"generate_ticket_lock_{payment_id}"
     lock_acquired = cache.add(lock_key, "locked", timeout=300)
+
     if not lock_acquired:
         print (f"another process is handling this payment")
         return
@@ -41,21 +42,36 @@ def generate_ticket(payment_id):
         payment = Payment.objects.select_related("driver").filter(id=payment_id).first()
         if not payment:
             print(f"No payment found for id {payment_id}")
-            return
+            return None
 
-        # Check for existing active ticket today
+        # ---------------------------------------------------
+        # STEP 1: IDENTITY CHECK (return real object, not bool)
+        # ---------------------------------------------------
         existing_ticket = Ticket.objects.filter(
-            driver=payment.driver, 
-            valid_for_date=today, 
-            status=Ticket.Status.ACTIVE
-            ).exists()
+           payment=payment,
+            ).first()
+        
         if existing_ticket:
             return existing_ticket
+        
+        # ---------------------------------------------------
+        # STEP 2: SAFER GLOBAL DAILY CHECK
+        # ---------------------------------------------------
+        existing_daily_ticket = Ticket.objects.filter(
+            driver=payment.driver,
+            valid_for_date=today,
+            status=Ticket.Status.ACTIVE
+        ).select_for_update().first()
+
+        if existing_daily_ticket:
+            return existing_daily_ticket
+
+        
+        # ---------------------------------------------------
+        # STEP 3: CREATE ATOMICALLY
+        # ---------------------------------------------------
 
         with transaction.atomic():
-            
-            # Generate a unique QR token (you can later encode this as QR image on frontend)
-            # qr_token = str(uuid.uuid4())
 
             ticket = Ticket.objects.create(
                 payment=payment,
@@ -70,7 +86,7 @@ def generate_ticket(payment_id):
 
     except IntegrityError:
         # Return existing ticket in case of DB-level uniqueness conflict
-        return Ticket.objects.filter(payment=payment).first()
+        return Ticket.objects.filter(payment_id=payment_id).first()
 
     finally:
         cache.delete(lock_key)
