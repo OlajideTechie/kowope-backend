@@ -198,13 +198,20 @@ class PaystackWebhookView(APIView):
         try:
             if not verify_paystack_signature(request):
                 logger.warning("Invalid Paystack signature")
-                return Response({"error": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST
-            )
+
+                return Response(
+                    {"error": "Invalid signature"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
         except Exception as e:
-            logger.exception(f"Signature verification failed: {e}")
+            logger.exception(
+                f"Signature verification failed: {e}"
+            )
 
-            return Response({"error": "Signature verification failed"}, status=status.HTTP_400_BAD_REQUEST
+            return Response(
+                {"error": "Signature verification failed"}, 
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # --- Step 2: Parse JSON payload ---
@@ -212,7 +219,9 @@ class PaystackWebhookView(APIView):
             event = json.loads(request.body)
 
         except Exception as e:
-            logger.exception(f"Failed to parse webhook payload: {e}")
+            logger.exception(
+                f"Failed to parse webhook payload: {e}"
+            )
 
             return Response(
                 {"error": "Invalid payload"},
@@ -223,14 +232,18 @@ class PaystackWebhookView(APIView):
         event_type = event.get("event")
 
         if event_type != "charge.success":
-            logger.info(f"Ignored event type: {event_type}")
+            logger.info(
+                f"Ignored event type: {event_type}"
+            )
 
             return Response(status=status.HTTP_200_OK)
 
         reference = event.get("data", {}).get("reference")
 
         if not reference:
-            logger.warning("Webhook event missing payment reference")
+            logger.warning(
+                "Webhook event missing payment reference"
+            )
 
             return Response(status=status.HTTP_200_OK)
 
@@ -296,26 +309,58 @@ class PaystackWebhookView(APIView):
                 # PREVENT DUPLICATE SUCCESS PAYMENTS
                 # -------------------------------------------
                 existing_success = Payment.objects.filter(
+                   payment=payment,
+                ).first()
+                
+                # self healing ticket recovery: if we receive a duplicate success webhook for a payment that is already marked as SUCCESS, we can check if a ticket exists for that payment. If not, we can attempt to generate the ticket again. This helps recover from cases where the ticket generation may have failed or the webhook processing was interrupted after marking the payment as successful but before generating the ticket.
+                if not existing_success:
+                    logger.warning(
+                         f"SUCCESS payment missing ticket. "
+                         f"Regenerating ticket for {reference}"
+                    )
+
+                    try:
+                        generate_ticket(payment.id)
+
+                    except Exception as e:
+                            logger.exception(
+                                f"Failed regenerating ticket "
+                                f"for {reference}: {e}"
+                            )
+
+                    return Response(status=status.HTTP_200_OK)
+
+                # -------------------------------------------------
+                # PREVENT DUPLICATE SUCCESS PAYMENTS
+                # -------------------------------------------------
+                existing_success = Payment.objects.filter(
                     driver=payment.driver,
                     payment_date=payment.payment_date,
                     status=Payment.Status.SUCCESS
                 ).exclude(id=payment.id).exists()
 
                 if existing_success:
+
                     logger.warning(
                         f"Duplicate successful payment attempt "
                         f"for driver={payment.driver_id}, "
                         f"date={payment.payment_date}"
                     )
 
-                    payment.status = Payment.Status.FAILED
-                    payment.save(update_fields=["status"])
+                    payment.status = Payment.Status.REJECTED
+
+                    payment.gateway_response = verification
+
+                    payment.save(update_fields=[
+                        "status",
+                        "gateway_response",
+                    ])
 
                     return Response(status=status.HTTP_200_OK)
 
-                # -------------------------------------------
+                # -------------------------------------------------
                 # MARK PAYMENT SUCCESS
-                # -------------------------------------------
+                # -------------------------------------------------
                 payment.status = Payment.Status.SUCCESS
                 payment.channel = payment_data.get("channel")
                 payment.gateway_response = verification
@@ -327,17 +372,6 @@ class PaystackWebhookView(APIView):
                     "gateway_response",
                     "paid_at",
                 ])
-
-                # -------------------------------------------
-                # GENERATE TICKET SAFELY
-                # -------------------------------------------
-                ticket = generate_ticket(payment.id)
-
-                logger.info(
-                    f"Payment processed successfully: "
-                    f"reference={reference}, "
-                    f"ticket_id={getattr(ticket, 'id', None)}"
-                )
 
         except IntegrityError as e:
 
@@ -357,8 +391,27 @@ class PaystackWebhookView(APIView):
 
             return Response(status=status.HTTP_200_OK)
 
+        # =====================================================
+        # STEP 6: GENERATE TICKET OUTSIDE PAYMENT TRANSACTION
+        # =====================================================
+        try:
+
+            ticket = generate_ticket(payment.id)
+
+            logger.info(
+                f"Payment processed successfully: "
+                f"reference={reference}, "
+                f"ticket_id={getattr(ticket, 'id', None)}"
+            )
+
+        except Exception as e:
+
+            logger.exception(
+                f"Ticket generation failed "
+                f"for payment {reference}: {e}"
+            )
+
         return Response(status=status.HTTP_200_OK)
-    
 
 @extend_schema(tags=["Payments"],
         exclude=True        

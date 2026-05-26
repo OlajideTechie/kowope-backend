@@ -34,41 +34,66 @@ def generate_ticket(payment_id):
 
     if not lock_acquired:
         print (f"another process is handling this payment")
-        return
+        return Ticket.objects.filter(payment_id=payment_id).first()
 
     try:
         today = timezone.localdate()
+        
+        # ---------------------------------------------------
+        # STEP 1: FETCH PAYMENT (source of truth)
+        # ---------------------------------------------------
+        payment = (
+            Payment.objects
+            .select_related("driver")
+            .filter(id=payment_id)
+            .first()
+        )
 
-        payment = Payment.objects.select_related("driver").filter(id=payment_id).first()
         if not payment:
             print(f"No payment found for id {payment_id}")
             return None
 
         # ---------------------------------------------------
-        # STEP 1: IDENTITY CHECK (return real object, not bool)
+        # STEP 2: IDEMPOTENCY (by payment)
         # ---------------------------------------------------
         existing_ticket = Ticket.objects.filter(
-           payment=payment,
+           payment=payment
             ).first()
         
         if existing_ticket:
             return existing_ticket
         
         # ---------------------------------------------------
-        # STEP 2: SAFER GLOBAL DAILY CHECK
+        # STEP 3: ATOMIC CREATION BLOCK (CRITICAL)
         # ---------------------------------------------------
-        existing_daily_ticket = Ticket.objects.filter(
-            driver=payment.driver,
-            valid_for_date=today,
-            status=Ticket.Status.ACTIVE
-        ).select_for_update().first()
+        with transaction.atomic():
 
-        if existing_daily_ticket:
-            return existing_daily_ticket
+            # lock existing daily ticket row (DB-level protection)
+            existing_daily_ticket = (
+                Ticket.objects
+                .select_for_update()
+                .filter(
+                    driver=payment.driver,
+                    valid_for_date=today,
+                    status=Ticket.Status.ACTIVE
+                )
+                .first()
+            )
+
+            if existing_daily_ticket:
+                return existing_daily_ticket
+
+            # double-check inside transaction (safety net)
+            duplicate_ticket = Ticket.objects.filter(
+                payment=payment
+            ).first()
+
+            if duplicate_ticket:
+                return duplicate_ticket
 
         
         # ---------------------------------------------------
-        # STEP 3: CREATE ATOMICALLY
+        # STEP 3: CREATE TICKET
         # ---------------------------------------------------
 
         with transaction.atomic():
