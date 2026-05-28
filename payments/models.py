@@ -12,6 +12,7 @@ class Payment(models.Model):
         FAILED = "FAILED"
         REFUNDED = "REFUNDED"
         EXPIRED = "EXPIRED"
+        REJECTED = "REJECTED"
 
     class Channel(models.TextChoices):
         CARD = "card"

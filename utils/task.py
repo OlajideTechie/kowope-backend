@@ -16,10 +16,7 @@ The main task is `generate_ticket`, which creates a ticket for a successful paym
 """
 
 def generate_unique_qr_code():
-    while True:
-        qr = uuid.uuid4()
-        if not Ticket.objects.filter(qr_code=qr).exists():
-            return qr
+    return uuid.uuid4()
         
 def generate_ticket(payment_id):
     """
@@ -31,31 +28,73 @@ def generate_ticket(payment_id):
 
     lock_key = f"generate_ticket_lock_{payment_id}"
     lock_acquired = cache.add(lock_key, "locked", timeout=300)
+
     if not lock_acquired:
         print (f"another process is handling this payment")
-        return
+        return Ticket.objects.filter(payment_id=payment_id).first()
 
     try:
-        today = timezone.localdate()
 
-        payment = Payment.objects.select_related("driver").filter(id=payment_id).first()
+        # ---------------------------------------------------
+        # STEP 1: FETCH PAYMENT (source of truth)
+        # ---------------------------------------------------
+        payment = (
+            Payment.objects
+            .select_related("driver")
+            .filter(id=payment_id)
+            .first()
+        )
+
         if not payment:
             print(f"No payment found for id {payment_id}")
-            return
+            return None
+        
+        today = payment.payment_date # use payment_date for ticket validity, not timezone.now() to avoid timezone issues
 
-        # Check for existing active ticket today
+        # ---------------------------------------------------
+        # STEP 2: IDEMPOTENCY (by payment)
+        # ---------------------------------------------------
         existing_ticket = Ticket.objects.filter(
-            driver=payment.driver, 
-            valid_for_date=today, 
-            status=Ticket.Status.ACTIVE
-            ).exists()
+           payment=payment
+            ).first()
+        
         if existing_ticket:
             return existing_ticket
+        
+        # ---------------------------------------------------
+        # STEP 3: ATOMIC CREATION BLOCK (CRITICAL)
+        # ---------------------------------------------------
+        with transaction.atomic():
+
+            # lock existing daily ticket row (DB-level protection)
+            existing_daily_ticket = (
+                Ticket.objects
+                .select_for_update()
+                .filter(
+                    driver=payment.driver,
+                    valid_for_date=today,
+                    status=Ticket.Status.ACTIVE
+                )
+                .first()
+            )
+
+            if existing_daily_ticket:
+                return existing_daily_ticket
+
+            # double-check inside transaction (safety net)
+            duplicate_ticket = Ticket.objects.filter(
+                payment=payment
+            ).first()
+
+            if duplicate_ticket:
+                return duplicate_ticket
+
+        
+        # ---------------------------------------------------
+        # STEP 3: CREATE TICKET
+        # ---------------------------------------------------
 
         with transaction.atomic():
-            
-            # Generate a unique QR token (you can later encode this as QR image on frontend)
-            # qr_token = str(uuid.uuid4())
 
             ticket = Ticket.objects.create(
                 payment=payment,
@@ -70,7 +109,7 @@ def generate_ticket(payment_id):
 
     except IntegrityError:
         # Return existing ticket in case of DB-level uniqueness conflict
-        return Ticket.objects.filter(payment=payment).first()
+        return Ticket.objects.filter(payment_id=payment_id).first()
 
     finally:
         cache.delete(lock_key)
