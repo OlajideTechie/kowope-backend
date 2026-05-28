@@ -16,10 +16,7 @@ The main task is `generate_ticket`, which creates a ticket for a successful paym
 """
 
 def generate_unique_qr_code():
-    while True:
-        qr = uuid.uuid4()
-        if not Ticket.objects.filter(qr_code=qr).exists():
-            return qr
+    return uuid.uuid4()
         
 def generate_ticket(payment_id):
     """
@@ -37,8 +34,7 @@ def generate_ticket(payment_id):
         return Ticket.objects.filter(payment_id=payment_id).first()
 
     try:
-        today = timezone.localdate()
-        
+
         # ---------------------------------------------------
         # STEP 1: FETCH PAYMENT (source of truth)
         # ---------------------------------------------------
@@ -52,6 +48,8 @@ def generate_ticket(payment_id):
         if not payment:
             print(f"No payment found for id {payment_id}")
             return None
+        
+        today = payment.payment_date # use payment_date for ticket validity, not timezone.now() to avoid timezone issues
 
         # ---------------------------------------------------
         # STEP 2: IDEMPOTENCY (by payment)

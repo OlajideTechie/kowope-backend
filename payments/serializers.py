@@ -7,20 +7,6 @@ from ticket.models import Ticket
 class PurchaseTicketSerializer(serializers.Serializer):
 
     def validate(self, attrs):
-        driver = self.context["request"].user.driver_profile
-        today = timezone.localdate()
-
-        has_active_ticket = Ticket.objects.filter(
-            driver=driver,
-            valid_for_date=today,
-            status=Ticket.Status.ACTIVE
-        ).exists()
-
-        if has_active_ticket:
-            raise serializers.ValidationError(
-                "You already have an active ticket for today."
-            )
-
         return attrs
 
 

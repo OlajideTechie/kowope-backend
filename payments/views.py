@@ -1,4 +1,5 @@
 import uuid
+from dateutil.utils import today
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -6,7 +7,10 @@ from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import transaction, IntegrityError
 
+from ticket.test_ticket import driver
+
 from .models import Payment
+from ticket.models import Ticket
 from authentication.models import DriverProfile
 from .serializers import PurchaseTicketSerializer, PurchaseTicketResponseSerializer, PendingPaymentResponseSerializer
 from ticket.serializers import TicketSerializer
@@ -50,26 +54,26 @@ logger = logging.getLogger(__name__)
 class PurchaseTicketView(APIView):
     serializer_class = PurchaseTicketSerializer
     permission_classes = [IsDriver]
-    
-    # PAYMENT_CUTOFF: no new payments can be initiated after this time each day, 
-    # ensuring ticket generation completes before cutoff and preventing late attempts that may not be fulfilled.
+
+    # PAYMENT_CUTOFF: no new payments can be initiated after this time each day,
+    # ensuring ticket generation completes before cutoff and preventing late attempts.
     PAYMENT_CUTOFF = time(22, 0)
 
-    # PENDING_EXPIRY: if a pending payment exists, it will be valid for this duration before expiring and allowing a new one
-    # this prevents users from spamming payment attempts while ensuring they can retry after a reasonable time if something goes wrong.
-    PENDING_EXPIRY = timedelta(minutes=settings.PENDING_TICKET_EXPIRY_MINUTES)
+    # PENDING_EXPIRY: if a pending payment exists, it will be valid for this duration
+    # before expiring and allowing a new one.
+    PENDING_EXPIRY = timedelta(
+        minutes=settings.PENDING_TICKET_EXPIRY_MINUTES
+    )
 
     def is_before_cutoff(self):
         """
         Returns True if current time is before payment cutoff.
-        Example cutoff: 6PM
         """
         now = timezone.localtime().time()
         return now <= self.PAYMENT_CUTOFF
 
     def post(self, request):
-        # Lazy ticket expiration when initiating payment, 
-        # ensuring we don't run this expensive operation on every request but still keep the system clean.
+        # Lazy ticket expiration when initiating payment
         expire_old_tickets_once_per_day()
 
         if not self.is_before_cutoff():
@@ -77,7 +81,7 @@ class PurchaseTicketView(APIView):
                 {"error": "Payment window has closed for today."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         serializer = PurchaseTicketSerializer(
             data=request.data,
             context={"request": request}
@@ -86,65 +90,127 @@ class PurchaseTicketView(APIView):
         serializer.is_valid(raise_exception=True)
 
         driver = request.user.driver_profile
+        today = timezone.localdate()
 
         # Fixed ticket amount
         amount = settings.TICKET_AMOUNT
-        
-        # Check for existing pending payment and 
-        # expire if too old, otherwise return existing pending payment
-        # info to prevent multiple pending payments for same driver
-        # as long as the payment is not expired.
-        pending_payment = Payment.objects.filter(
+
+        # ==================================================
+        # SUCCESS PAYMENT CHECK
+        # ==================================================
+        successful_payment = Payment.objects.filter(
             driver=driver,
-            status=Payment.Status.PENDING
-        ).order_by("-created_at").first() 
+            payment_date=today,
+            status=Payment.Status.SUCCESS,
+        ).first()
+
+        if successful_payment:
+
+            ticket = Ticket.objects.filter(
+                payment=successful_payment
+            ).first()
+
+            if not ticket:
+                generate_ticket(successful_payment.id)
+
+                ticket = Ticket.objects.filter(
+                    payment=successful_payment
+                ).first()  
+
+                logger.warning(
+                    f"Missing ticket detected for successful payment "
+                    f"{successful_payment.reference}. Regenerated ticket {ticket.id} for driver {driver.full_name}."
+                )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "You have already paid for today.",
+                    "ticket_id": getattr(ticket, "id", None),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ==================================================
+        # PENDING PAYMENT CHECK
+        # ==================================================
+        pending_payment = (
+            Payment.objects.filter(
+                driver=driver,
+                payment_date=today,
+                status=Payment.Status.PENDING,
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
         if pending_payment:
 
-            expiry_time = pending_payment.created_at + self.PENDING_EXPIRY
-
-           # Expire old pending payment
-            if timezone.now() > expiry_time:
-                pending_payment.status = Payment.Status.EXPIRED
-                pending_payment.save(update_fields=["status"])
-
-            else: 
-               return Response ({
-                   "message": "you already have a pending payment",
-                   "reference": pending_payment.reference,
-                   "status": pending_payment.status,
-                   "authorization_url": pending_payment.authorization_url,
-               }, status=status.HTTP_200_OK,
+            expiry_time = (
+                pending_payment.created_at +
+                self.PENDING_EXPIRY
             )
-           
-        # Create new payment
+
+            if timezone.now() > expiry_time:
+
+                pending_payment.status = Payment.Status.EXPIRED
+
+                pending_payment.save(
+                    update_fields=["status"]
+                )
+
+            else:
+
+                return Response(
+                    {
+                        "message": "You already have a pending payment",
+                        "reference": pending_payment.reference,
+                        "status": pending_payment.status,
+                        "authorization_url":
+                            pending_payment.authorization_url,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
+        # ==================================================
+        # CREATE NEW PAYMENT
+        # ==================================================
         reference = str(uuid.uuid4())
 
-        # Create payment record after getting URL
         payment = Payment.objects.create(
             driver=driver,
             reference=reference,
             amount=amount,
-            currency='NGN'
+            currency="NGN",
         )
 
-        # Initialize Paystack payment
-        paystack_response = PaystackService.initialize_payment(
-            payment=payment,
-            amount=amount,
-            reference=reference
+        paystack_response = (
+            PaystackService.initialize_payment(
+                payment=payment,
+                amount=amount,
+                reference=reference,
+            )
         )
 
-        # Extract authorization URL
-        authorization_url = paystack_response["data"]["authorization_url"]
+        authorization_url = (
+            paystack_response["data"]["authorization_url"]
+        )
 
-        # Save URL to DB
         payment.authorization_url = authorization_url
-        payment.save(update_fields=["authorization_url"])
-        
 
-        return Response(paystack_response, status=status.HTTP_200_OK)
-    
+        payment.save(
+            update_fields=["authorization_url"]
+        )
+
+        logger.info(
+            f"Initialized payment for driver {driver.full_name} "
+            f"with reference {reference}"
+        )
+
+        return Response(
+            paystack_response,
+            status=status.HTTP_200_OK,
+        )
 
 
 @extend_schema(
@@ -229,11 +295,12 @@ class PaystackWebhookView(APIView):
             )
 
         # --- Step 3: Only handle charge.success events ---
-        event_type = event.get("event")
+      
 
-        if event_type != "charge.success":
+        if event.get("event") != "charge.success":
+
             logger.info(
-                f"Ignored event type: {event_type}"
+                f"Ignored event type: {event.get('event')}"
             )
 
             return Response(status=status.HTTP_200_OK)
@@ -274,7 +341,7 @@ class PaystackWebhookView(APIView):
 
             return Response(status=status.HTTP_200_OK)
 
-         # ---------------------------------------------------
+        # ---------------------------------------------------
         # STEP 5: Atomic payment update + ticket generation
         # ---------------------------------------------------
         try:
@@ -299,33 +366,28 @@ class PaystackWebhookView(APIView):
                 # IDEMPOTENCY CHECK
                 # -------------------------------------------
                 if payment.status == Payment.Status.SUCCESS:
+
                     logger.info(
                         f"Payment already processed: {reference}"
                     )
+                    
+                    existing_ticket = Ticket.objects.filter(
+                        payment=payment
+                    ).first()
 
-                    return Response(status=status.HTTP_200_OK)
+                    # self healing ticket recovery: if we receive a duplicate success webhook for a payment that is already marked as SUCCESS,
+                    # check whether the ticket exists and regenerate it if missing.
+                    if not existing_ticket:
+                        logger.warning(
+                            f"Missing ticket detected for {reference}. Regenerating."
+                        )
 
-                # -------------------------------------------
-                # PREVENT DUPLICATE SUCCESS PAYMENTS
-                # -------------------------------------------
-                existing_success = Payment.objects.filter(
-                   payment=payment,
-                ).first()
-                
-                # self healing ticket recovery: if we receive a duplicate success webhook for a payment that is already marked as SUCCESS, we can check if a ticket exists for that payment. If not, we can attempt to generate the ticket again. This helps recover from cases where the ticket generation may have failed or the webhook processing was interrupted after marking the payment as successful but before generating the ticket.
-                if not existing_success:
-                    logger.warning(
-                         f"SUCCESS payment missing ticket. "
-                         f"Regenerating ticket for {reference}"
-                    )
+                        try:
+                            generate_ticket(payment.id)
 
-                    try:
-                        generate_ticket(payment.id)
-
-                    except Exception as e:
+                        except Exception as e:
                             logger.exception(
-                                f"Failed regenerating ticket "
-                                f"for {reference}: {e}"
+                                f"Ticket regeneration failed for {reference}: {e}"
                             )
 
                     return Response(status=status.HTTP_200_OK)
